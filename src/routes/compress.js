@@ -1,5 +1,6 @@
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { v4 as uuidv4 } from 'uuid';
 import upload from '../utils/multerConfig.js';
@@ -45,7 +46,7 @@ router.post('/compress', upload.single('file'), async (req, res) => {
       throw new Error(compressionResult.error || 'Compression failed');
     }
 
-    // Calculate compression statistics
+    // Calculate compression statistics for logging
     const originalSizeMB = (compressionResult.originalSize / 1024 / 1024).toFixed(2);
     const compressedSizeMB = (compressionResult.compressedSize / 1024 / 1024).toFixed(2);
     const savings = compressionResult.originalSize - compressionResult.compressedSize;
@@ -58,22 +59,29 @@ router.post('/compress', upload.single('file'), async (req, res) => {
     // Clean up input file
     cleanupFiles(path.dirname(inputPath), 0.1); // Clean files older than 6 minutes
 
-    // Return success response
-    res.json({
-      success: true,
-      message: 'PDF compressed successfully',
+    // CRITICAL FIX: Return the actual compressed file as blob instead of JSON
+    // Set headers for file download
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${outputFilename}"`);
+    res.setHeader('X-Compression-Stats', JSON.stringify({
       originalSize: compressionResult.originalSize,
       compressedSize: compressionResult.compressedSize,
       compressionRatio: compressionResult.compressionRatio,
-      strategy: compressionResult.strategy,
-      downloadUrl: `/api/download/${outputFilename}`,
-      filename: outputFilename,
-      stats: {
-        originalSizeMB: originalSizeMB,
-        compressedSizeMB: compressedSizeMB,
-        savingsMB: savingsMB,
-        reductionPercentage: `${compressionResult.compressionRatio.toFixed(1)}%`
-      }
+      strategy: compressionResult.strategy
+    }));
+
+    // Stream the compressed file
+    const fileStream = fs.createReadStream(outputPath);
+    fileStream.pipe(res);
+
+    // Clean up the compressed file after streaming
+    fileStream.on('end', () => {
+      setTimeout(() => {
+        if (fs.existsSync(outputPath)) {
+          fs.unlinkSync(outputPath);
+          console.log(`🗑️ Cleaned up compressed file: ${outputFilename}`);
+        }
+      }, 1000); // Small delay to ensure file is fully sent
     });
 
   } catch (error) {
@@ -88,9 +96,9 @@ router.post('/compress', upload.single('file'), async (req, res) => {
       }
     }
 
-    if (outputPath) {
+    if (outputPath && fs.existsSync(outputPath)) {
       try {
-        cleanupFiles(path.dirname(outputPath), 0);
+        fs.unlinkSync(outputPath);
       } catch (cleanupError) {
         console.error('Output cleanup error:', cleanupError);
       }
