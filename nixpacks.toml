@@ -5,7 +5,7 @@
   nixPkgs = ["nodejs", "qpdf"]
 
 [phases.install]
-  cmds = ["npm install --only=production"]
+  cmds = ["npm install"]
 
 [start]
   cmd = "npm start" 
