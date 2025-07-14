@@ -2,7 +2,7 @@
   NODE_ENV = "production"
 
 [phases.setup]
-  nixPkgs = ["nodejs", "npm", "qpdf"]
+  nixPkgs = ["nodejs", "qpdf"]
 
 [phases.install]
   cmds = [
