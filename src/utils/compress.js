@@ -158,6 +158,17 @@ export async function compressPDF(inputPath, outputPath) {
   } else if (!bestResult.success) {
     // Copy original file if no compression worked
     fs.copyFileSync(inputPath, outputPath);
+    
+    // Update result to indicate successful preservation of original file
+    bestResult = {
+      success: true,
+      outputPath: outputPath,
+      originalSize,
+      compressedSize: originalSize,
+      compressionRatio: 0,
+      strategy: 'None',
+      error: null
+    };
   }
 
   console.log(`🎉 COMPRESSION COMPLETE!`);
