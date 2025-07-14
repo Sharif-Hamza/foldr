@@ -54,11 +54,20 @@ app.use(limiter);
 // Compression
 app.use(compression());
 
-// CORS - Handle both with and without trailing slash
+// CORS - Extract base origin (protocol + domain + port only)
+const getBaseOrigin = (url) => {
+  if (!url) return null;
+  try {
+    const parsed = new URL(url);
+    return `${parsed.protocol}//${parsed.host}`;
+  } catch (error) {
+    return url;
+  }
+};
+
 const allowedOrigins = [
-  process.env.FRONTEND_URL,
-  process.env.FRONTEND_URL?.replace(/\/$/, ''), // Remove trailing slash
-  process.env.FRONTEND_URL + '/', // Add trailing slash
+  getBaseOrigin(process.env.FRONTEND_URL),
+  'https://stellar-kashata-5b896a.netlify.app', // Production frontend
   'http://localhost:5173',
   'http://localhost:5174'
 ].filter(Boolean);
