@@ -6,6 +6,40 @@ import { promisify } from 'util';
 const execAsync = promisify(exec);
 
 /**
+ * Check if qpdf is available on the system
+ * @returns {Promise<boolean>}
+ */
+async function isQpdfAvailable() {
+  try {
+    await execAsync('qpdf --version');
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+
+/**
+ * Fallback compression using file copy (for development without qpdf)
+ * @param {string} inputPath 
+ * @param {string} outputPath 
+ */
+async function fallbackCompress(inputPath, outputPath) {
+  console.log('⚠️ qpdf not available, using fallback compression (file copy)');
+  console.log('📝 To get real compression, install qpdf or deploy to Railway');
+  
+  // Copy file as fallback
+  fs.copyFileSync(inputPath, outputPath);
+  
+  const stats = fs.statSync(inputPath);
+  return {
+    success: true,
+    originalSize: stats.size,
+    compressedSize: stats.size,
+    compressionRatio: 0
+  };
+}
+
+/**
  * Compress a PDF file using qpdf CLI tool
  * @param {string} inputPath - Path to the input PDF file
  * @param {string} outputPath - Path where the compressed PDF will be saved
@@ -22,8 +56,17 @@ export async function compressPDF(inputPath, outputPath) {
     const originalStats = fs.statSync(inputPath);
     const originalSize = originalStats.size;
 
-    console.log(`🔧 Starting qpdf compression: ${path.basename(inputPath)}`);
+    console.log(`🔧 Starting PDF compression: ${path.basename(inputPath)}`);
     console.log(`📋 Original size: ${(originalSize / 1024 / 1024).toFixed(2)} MB`);
+
+    // Check if qpdf is available
+    const qpdfAvailable = await isQpdfAvailable();
+    
+    if (!qpdfAvailable) {
+      console.log('⚠️ qpdf not found - using fallback for development');
+      console.log('💡 Install qpdf for real compression or deploy to Railway');
+      return await fallbackCompress(inputPath, outputPath);
+    }
 
     // Use qpdf to compress the PDF with multiple optimization flags
     const qpdfCommand = `qpdf --linearize --compress-streams=y --decode-level=generalized --optimize-images --object-streams=generate "${inputPath}" "${outputPath}"`;

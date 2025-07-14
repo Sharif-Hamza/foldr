@@ -1,11 +1,17 @@
+[variables]
+  NODE_ENV = "production"
+
 [phases.setup]
-nixpkgs = ["qpdf"]
+  nixPkgs = ["nodejs", "npm", "qpdf"]
+
+[phases.install]
+  cmds = [
+    "npm cache clean --force",
+    "npm ci --omit=dev --no-cache"
+  ]
 
 [phases.build]
-cmds = ["npm ci"]
+  cmds = ["echo 'No build step required'"]
 
-[phases.start]
-cmd = "npm start"
-
-[variables]
-NODE_ENV = "production" 
+[start]
+  cmd = "npm start" 
