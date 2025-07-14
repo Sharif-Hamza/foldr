@@ -2,16 +2,10 @@
   NODE_ENV = "production"
 
 [phases.setup]
-  nixPkgs = ["nodejs", "qpdf", "python3", "gcc", "gnumake", "pkg-config", "vips", "glib"]
+  nixPkgs = ["nodejs", "qpdf"]
 
 [phases.install]
-  cmds = [
-    "npm config set loglevel verbose",
-    "npm install --production --verbose --platform=linux --arch=x64"
-  ]
-
-[phases.build]
-  cmds = ["echo 'No build step required'"]
+  cmds = ["npm install --only=production"]
 
 [start]
   cmd = "npm start" 
