@@ -1,8 +1,14 @@
 # Use the official Node.js runtime as base image
 FROM node:18-alpine
 
-# Install qpdf for PDF compression
-RUN apk add --no-cache qpdf
+# Install qpdf, ghostscript, and Sharp dependencies
+RUN apk add --no-cache \
+    qpdf \
+    ghostscript \
+    vips-dev \
+    python3 \
+    make \
+    g++
 
 # Set the working directory
 WORKDIR /app
@@ -20,7 +26,7 @@ RUN npm install --only=production
 COPY . .
 
 # Create necessary directories
-RUN mkdir -p uploads output
+RUN mkdir -p uploads output compressed
 
 # Expose the port
 EXPOSE 3001

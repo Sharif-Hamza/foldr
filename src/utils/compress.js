@@ -6,12 +6,12 @@ import { promisify } from 'util';
 const execAsync = promisify(exec);
 
 /**
- * Check if qpdf is available on the system
+ * Check if a command is available on the system
  * @returns {Promise<boolean>}
  */
-async function isQpdfAvailable() {
+async function isCommandAvailable(command) {
   try {
-    await execAsync('qpdf --version');
+    await execAsync(`which ${command}`);
     return true;
   } catch (error) {
     return false;
@@ -19,133 +19,183 @@ async function isQpdfAvailable() {
 }
 
 /**
- * Fallback compression using file copy (for development without qpdf)
- * @param {string} inputPath 
- * @param {string} outputPath 
+ * Get file size in bytes
  */
-async function fallbackCompress(inputPath, outputPath) {
-  console.log('⚠️ qpdf not available, using fallback compression (file copy)');
-  console.log('📝 To get real compression, install qpdf or deploy to Railway');
-  
-  // Copy file as fallback
-  fs.copyFileSync(inputPath, outputPath);
-  
-  const stats = fs.statSync(inputPath);
-  return {
-    success: true,
-    originalSize: stats.size,
-    compressedSize: stats.size,
-    compressionRatio: 0
-  };
-}
-
-/**
- * Compress a PDF file using qpdf CLI tool
- * @param {string} inputPath - Path to the input PDF file
- * @param {string} outputPath - Path where the compressed PDF will be saved
- * @returns {Promise<{success: boolean, originalSize: number, compressedSize: number, compressionRatio: number}>}
- */
-export async function compressPDF(inputPath, outputPath) {
+function getFileSize(filePath) {
   try {
-    // Check if input file exists
-    if (!fs.existsSync(inputPath)) {
-      throw new Error('Input file does not exist');
-    }
-
-    // Get original file size
-    const originalStats = fs.statSync(inputPath);
-    const originalSize = originalStats.size;
-
-    console.log(`🔧 Starting PDF compression: ${path.basename(inputPath)}`);
-    console.log(`📋 Original size: ${(originalSize / 1024 / 1024).toFixed(2)} MB`);
-
-    // Check if qpdf is available
-    const qpdfAvailable = await isQpdfAvailable();
-    
-    if (!qpdfAvailable) {
-      console.log('⚠️ qpdf not found - using fallback for development');
-      console.log('💡 Install qpdf for real compression or deploy to Railway');
-      return await fallbackCompress(inputPath, outputPath);
-    }
-
-    // Use qpdf to compress the PDF with multiple optimization flags
-    const qpdfCommand = `qpdf --linearize --compress-streams=y --decode-level=generalized --optimize-images --object-streams=generate "${inputPath}" "${outputPath}"`;
-    
-    console.log(`⚡ Executing: ${qpdfCommand}`);
-    
-    // Execute qpdf command
-    const { stdout, stderr } = await execAsync(qpdfCommand);
-    
-    if (stderr && !stderr.includes('warning')) {
-      console.error('qpdf stderr:', stderr);
-    }
-    
-    if (stdout) {
-      console.log('qpdf stdout:', stdout);
-    }
-
-    // Check if output file was created
-    if (!fs.existsSync(outputPath)) {
-      throw new Error('Compression failed - output file not created');
-    }
-
-    // Get compressed file size
-    const compressedStats = fs.statSync(outputPath);
-    const compressedSize = compressedStats.size;
-    
-    // Calculate compression ratio
-    const compressionRatio = ((originalSize - compressedSize) / originalSize * 100);
-    
-    console.log(`📊 Compressed size: ${(compressedSize / 1024 / 1024).toFixed(2)} MB`);
-    console.log(`🎯 Compression ratio: ${compressionRatio.toFixed(1)}%`);
-
-    return {
-      success: true,
-      originalSize,
-      compressedSize,
-      compressionRatio: Math.round(compressionRatio * 10) / 10
-    };
-
+    const stats = fs.statSync(filePath);
+    return stats.size;
   } catch (error) {
-    console.error('❌ Compression error:', error.message);
-    
-    // Clean up output file if it exists but compression failed
-    if (fs.existsSync(outputPath)) {
-      try {
-        fs.unlinkSync(outputPath);
-      } catch (cleanupError) {
-        console.error('Cleanup error:', cleanupError.message);
-      }
-    }
-    
-    throw new Error(`PDF compression failed: ${error.message}`);
+    return 0;
   }
 }
 
 /**
- * Clean up temporary files
- * @param {string[]} filePaths - Array of file paths to delete
+ * Format file size for display
  */
-export function cleanupFiles(filePaths) {
-  filePaths.forEach(filePath => {
-    try {
-      if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
-        console.log(`🗑️ Cleaned up: ${path.basename(filePath)}`);
-      }
-    } catch (error) {
-      console.error(`❌ Failed to cleanup ${filePath}:`, error.message);
-    }
-  });
+function formatFileSize(bytes) {
+  const mb = bytes / (1024 * 1024);
+  return mb.toFixed(2);
 }
 
 /**
- * Ensure directory exists, create if it doesn't
- * @param {string} dirPath - Directory path to check/create
+ * Comprehensive PDF compression using multiple tools and strategies
+ * @param {string} inputPath - Path to input PDF
+ * @param {string} outputPath - Path for output PDF
+ * @returns {Promise<Object>} Compression result
+ */
+export async function compressPDF(inputPath, outputPath) {
+  const originalSize = getFileSize(inputPath);
+  const originalSizeMB = formatFileSize(originalSize);
+  
+  console.log(`🔥 PROFESSIONAL PDF COMPRESSION: ${path.basename(inputPath)}`);
+  console.log(`📋 Original: ${originalSizeMB} MB`);
+
+  const strategies = [
+    { name: 'qpdf_aggressive', tool: 'qpdf' },
+    { name: 'ghostscript_ebook', tool: 'ghostscript' },
+    { name: 'ghostscript_printer', tool: 'ghostscript' },
+    { name: 'ghostscript_prepress', tool: 'ghostscript' },
+    { name: 'qpdf_linearize', tool: 'qpdf' }
+  ];
+
+  let bestResult = {
+    success: false,
+    outputPath: inputPath,
+    originalSize,
+    compressedSize: originalSize,
+    compressionRatio: 0,
+    strategy: 'None',
+    error: null
+  };
+
+  // Check tool availability
+  const qpdfAvailable = await isCommandAvailable('qpdf');
+  const gsAvailable = await isCommandAvailable('gs');
+
+  if (!qpdfAvailable && !gsAvailable) {
+    console.log('❌ No compression tools available');
+    return {
+      ...bestResult,
+      error: 'No compression tools available'
+    };
+  }
+
+  console.log(`🔧 Available tools: ${qpdfAvailable ? 'qpdf' : ''}${qpdfAvailable && gsAvailable ? ' + ' : ''}${gsAvailable ? 'ghostscript' : ''}`);
+
+  // Try each compression strategy
+  for (const strategy of strategies) {
+    if ((strategy.tool === 'qpdf' && !qpdfAvailable) || 
+        (strategy.tool === 'ghostscript' && !gsAvailable)) {
+      continue;
+    }
+
+    try {
+      const tempOutput = `${outputPath}.${strategy.name}.tmp`;
+      let command = '';
+
+      switch (strategy.name) {
+        case 'qpdf_aggressive':
+          command = `qpdf --linearize --compress-streams=y --decode-level=generalized --optimize-images --object-streams=generate --remove-unreferenced-resources=yes --filtered-stream-data "${inputPath}" "${tempOutput}"`;
+          break;
+
+        case 'qpdf_linearize':
+          command = `qpdf --linearize --optimize-images --object-streams=generate --filtered-stream-data "${inputPath}" "${tempOutput}"`;
+          break;
+
+        case 'ghostscript_ebook':
+          command = `gs -sDEVICE=pdfwrite -dCompatibilityLevel=1.4 -dPDFSETTINGS=/ebook -dNOPAUSE -dQUIET -dBATCH -dDetectDuplicateImages=true -dCompressFonts=true -r150 -sOutputFile="${tempOutput}" "${inputPath}"`;
+          break;
+
+        case 'ghostscript_printer':
+          command = `gs -sDEVICE=pdfwrite -dCompatibilityLevel=1.4 -dPDFSETTINGS=/printer -dNOPAUSE -dQUIET -dBATCH -dDetectDuplicateImages=true -dCompressFonts=true -r300 -sOutputFile="${tempOutput}" "${inputPath}"`;
+          break;
+
+        case 'ghostscript_prepress':
+          command = `gs -sDEVICE=pdfwrite -dCompatibilityLevel=1.4 -dPDFSETTINGS=/prepress -dNOPAUSE -dQUIET -dBATCH -dDetectDuplicateImages=true -dCompressFonts=true -r300 -sOutputFile="${tempOutput}" "${inputPath}"`;
+          break;
+      }
+
+      console.log(`🚀 Trying strategy: ${strategy.name}`);
+      await execAsync(command);
+
+      const compressedSize = getFileSize(tempOutput);
+      
+      if (compressedSize > 0 && compressedSize < bestResult.compressedSize) {
+        // Clean up previous best result
+        if (bestResult.outputPath !== inputPath && fs.existsSync(bestResult.outputPath)) {
+          fs.unlinkSync(bestResult.outputPath);
+        }
+
+        bestResult = {
+          success: true,
+          outputPath: tempOutput,
+          originalSize,
+          compressedSize,
+          compressionRatio: ((originalSize - compressedSize) / originalSize) * 100,
+          strategy: strategy.name,
+          error: null
+        };
+
+        console.log(`✅ New best: ${formatFileSize(compressedSize)} MB (${bestResult.compressionRatio.toFixed(1)}% reduction)`);
+      } else {
+        // Clean up unsuccessful attempt
+        if (fs.existsSync(tempOutput)) {
+          fs.unlinkSync(tempOutput);
+        }
+        console.log(`❌ Strategy ${strategy.name} didn't improve size`);
+      }
+
+    } catch (error) {
+      console.log(`❌ Strategy ${strategy.name} failed: ${error.message}`);
+    }
+  }
+
+  // Move best result to final output path
+  if (bestResult.success && bestResult.outputPath !== outputPath) {
+    fs.renameSync(bestResult.outputPath, outputPath);
+    bestResult.outputPath = outputPath;
+  } else if (!bestResult.success) {
+    // Copy original file if no compression worked
+    fs.copyFileSync(inputPath, outputPath);
+  }
+
+  console.log(`🎉 COMPRESSION COMPLETE!`);
+  console.log(`📊 Final size: ${formatFileSize(bestResult.compressedSize)} MB`);
+  console.log(`🎯 Reduction: ${bestResult.compressionRatio.toFixed(1)}%`);
+  console.log(`⚡ Strategy: ${bestResult.strategy}`);
+
+  return bestResult;
+}
+
+/**
+ * Ensure directory exists
  */
 export function ensureDirectoryExists(dirPath) {
   if (!fs.existsSync(dirPath)) {
     fs.mkdirSync(dirPath, { recursive: true });
-    console.log(`📁 Created directory: ${dirPath}`);
+  }
+}
+
+/**
+ * Clean up old files
+ */
+export function cleanupFiles(directory, maxAgeHours = 1) {
+  try {
+    const files = fs.readdirSync(directory);
+    const now = Date.now();
+    const maxAge = maxAgeHours * 60 * 60 * 1000;
+
+    files.forEach(file => {
+      const filePath = path.join(directory, file);
+      const stats = fs.statSync(filePath);
+      
+      if (now - stats.mtime.getTime() > maxAge) {
+        fs.unlinkSync(filePath);
+        console.log(`🗑️ Cleaned up old file: ${file}`);
+      }
+    });
+  } catch (error) {
+    console.error('Cleanup error:', error);
   }
 } 

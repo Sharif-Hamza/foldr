@@ -29,7 +29,7 @@ router.post('/compress', upload.single('file'), async (req, res) => {
       return res.status(400).json({ error: 'Only PDF files are allowed' });
     }
 
-    console.log(`🚀 QPDF COMPRESSION REQUEST: ${req.file.originalname}`);
+    console.log(`🚀 COMPRESSION REQUEST: ${req.file.originalname}`);
     console.log(`📁 File size: ${(req.file.size / 1024 / 1024).toFixed(2)} MB`);
 
     // Set up file paths
@@ -38,58 +38,70 @@ router.post('/compress', upload.single('file'), async (req, res) => {
     const outputFilename = `compressed_${fileId}.pdf`;
     outputPath = path.join(compressedDir, outputFilename);
 
-    // Compress the PDF using qpdf
+    // Compress the PDF using the new professional compression system
     const compressionResult = await compressPDF(inputPath, outputPath);
 
     if (!compressionResult.success) {
-      throw new Error('Compression failed');
+      throw new Error(compressionResult.error || 'Compression failed');
     }
 
-    // Send the compressed file back to client
-    res.download(outputPath, `compressed_${req.file.originalname}`, (downloadError) => {
-      // Clean up both input and output files after download
-      const filesToCleanup = [inputPath, outputPath];
-      
-      if (downloadError) {
-        console.error('❌ Download error:', downloadError);
-        cleanupFiles(filesToCleanup);
-        if (!res.headersSent) {
-          res.status(500).json({ error: 'Failed to send compressed file' });
-        }
-      } else {
-        console.log(`✅ Compression completed successfully!`);
-        console.log(`📊 Original: ${(compressionResult.originalSize / 1024 / 1024).toFixed(2)} MB`);
-        console.log(`📊 Compressed: ${(compressionResult.compressedSize / 1024 / 1024).toFixed(2)} MB`);
-        console.log(`🎯 Space saved: ${compressionResult.compressionRatio}%`);
-        
-        // Clean up files after successful download
-        setTimeout(() => {
-          cleanupFiles(filesToCleanup);
-        }, 1000); // Small delay to ensure download completes
+    // Calculate compression statistics
+    const originalSizeMB = (compressionResult.originalSize / 1024 / 1024).toFixed(2);
+    const compressedSizeMB = (compressionResult.compressedSize / 1024 / 1024).toFixed(2);
+    const savings = compressionResult.originalSize - compressionResult.compressedSize;
+    const savingsMB = (savings / 1024 / 1024).toFixed(2);
+
+    console.log(`✅ Compression successful using ${compressionResult.strategy}`);
+    console.log(`📊 Size: ${originalSizeMB} MB → ${compressedSizeMB} MB`);
+    console.log(`💾 Saved: ${savingsMB} MB (${compressionResult.compressionRatio.toFixed(1)}%)`);
+
+    // Clean up input file
+    cleanupFiles(path.dirname(inputPath), 0.1); // Clean files older than 6 minutes
+
+    // Return success response
+    res.json({
+      success: true,
+      message: 'PDF compressed successfully',
+      originalSize: compressionResult.originalSize,
+      compressedSize: compressionResult.compressedSize,
+      compressionRatio: compressionResult.compressionRatio,
+      strategy: compressionResult.strategy,
+      downloadUrl: `/api/download/${outputFilename}`,
+      filename: outputFilename,
+      stats: {
+        originalSizeMB: originalSizeMB,
+        compressedSizeMB: compressedSizeMB,
+        savingsMB: savingsMB,
+        reductionPercentage: `${compressionResult.compressionRatio.toFixed(1)}%`
       }
     });
 
   } catch (error) {
-    console.error('❌ Compression route error:', error);
-    
+    console.error('❌ Compression error:', error);
+
     // Clean up files on error
-    const filesToCleanup = [inputPath, outputPath].filter(Boolean);
-    cleanupFiles(filesToCleanup);
-    
-    // Send error response
-    if (!res.headersSent) {
-      if (error.message.includes('qpdf')) {
-        res.status(500).json({ 
-          error: 'PDF compression failed. The file might be corrupted or password-protected.',
-          details: 'qpdf compression error'
-        });
-      } else {
-        res.status(500).json({ 
-          error: 'Compression failed', 
-          details: error.message 
-        });
+    if (inputPath) {
+      try {
+        cleanupFiles(path.dirname(inputPath), 0);
+      } catch (cleanupError) {
+        console.error('Cleanup error:', cleanupError);
       }
     }
+
+    if (outputPath) {
+      try {
+        cleanupFiles(path.dirname(outputPath), 0);
+      } catch (cleanupError) {
+        console.error('Output cleanup error:', cleanupError);
+      }
+    }
+
+    // Return error response
+    res.status(500).json({
+      error: 'PDF compression failed',
+      message: error.message,
+      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
   }
 });
 
