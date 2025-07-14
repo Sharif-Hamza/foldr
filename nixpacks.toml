@@ -6,7 +6,7 @@
 
 [phases.install]
   cmds = [
-    "npm ci --omit=dev --no-cache --prefer-offline"
+    "npm ci --omit=dev"
   ]
 
 [phases.build]
