@@ -6,7 +6,7 @@
 
 [phases.install]
   cmds = [
-    "npm ci --omit=dev"
+    "npm install --production"
   ]
 
 [phases.build]
