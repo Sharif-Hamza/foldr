@@ -4,6 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { v4 as uuidv4 } from 'uuid';
 import upload from '../utils/multerConfig.js';
+import pdfParse from 'pdf-parse';
 
 const router = express.Router();
 const __filename = fileURLToPath(import.meta.url);
@@ -58,8 +59,6 @@ async function callDeepSeekAPI(messages, systemPrompt = '') {
 async function extractPDFText(filePath) {
   try {
     // Use pdf-parse which is designed for Node.js (no DOM dependencies)
-    const pdfParse = (await import('pdf-parse')).default;
-    
     const dataBuffer = fs.readFileSync(filePath);
     const pdfData = await pdfParse(dataBuffer);
     
