@@ -57,6 +57,25 @@ async function callDeepSeekAPI(messages, systemPrompt = '') {
 // Helper function to extract text from PDF using PDF.js
 async function extractPDFText(filePath) {
   try {
+    // Polyfill browser APIs for Node.js environment
+    global.DOMMatrix = class DOMMatrix {
+      constructor() {
+        this.a = 1; this.b = 0; this.c = 0; this.d = 1; this.e = 0; this.f = 0;
+      }
+    };
+    
+    global.ImageData = class ImageData {
+      constructor(width, height) {
+        this.width = width;
+        this.height = height;
+        this.data = new Uint8ClampedArray(width * height * 4);
+      }
+    };
+    
+    global.Path2D = class Path2D {
+      constructor() {}
+    };
+    
     // Dynamic import of PDF.js
     const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.mjs');
     
