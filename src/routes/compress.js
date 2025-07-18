@@ -10,9 +10,9 @@ const router = express.Router();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Ensure compressed directory exists
-const compressedDir = path.join(__dirname, '../../compressed');
-ensureDirectoryExists(compressedDir);
+// Ensure output directory exists (same as other routes)
+const outputDir = path.join(__dirname, '../../output');
+ensureDirectoryExists(outputDir);
 
 // Compress PDF endpoint
 router.post('/compress', upload.single('file'), async (req, res) => {
@@ -37,7 +37,7 @@ router.post('/compress', upload.single('file'), async (req, res) => {
     inputPath = req.file.path;
     const fileId = uuidv4();
     const outputFilename = `compressed_${fileId}.pdf`;
-    outputPath = path.join(compressedDir, outputFilename);
+    outputPath = path.join(outputDir, outputFilename);
 
     console.log('🚀 STARTING COMPRESSION WITH DETAILED LOGGING...');
     
