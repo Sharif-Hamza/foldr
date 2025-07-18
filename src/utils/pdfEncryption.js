@@ -55,10 +55,10 @@ export async function encryptPDF(inputPath, outputPath, password) {
   console.log('🔧 qpdf available - proceeding with encryption');
 
   try {
-    // Professional qpdf encryption command with full restrictions
-    const command = `qpdf --encrypt "${password}" "${password}" 256 --accessibility=n --extract=n --print=none --modify=none --annotate=n --form=n --assembly=n --cleartext-metadata -- "${inputPath}" "${outputPath}"`;
+    // Professional qpdf encryption command (simplified for better compatibility)
+    const command = `qpdf --encrypt "${password}" "${password}" 256 --print=none --modify=none --extract=n --annotate=n -- "${inputPath}" "${outputPath}"`;
     
-    console.log('🚀 Executing qpdf encryption...');
+    console.log('🚀 Executing qpdf encryption...', command);
     await execAsync(command, { timeout: 30000 });
 
     // Verify the encrypted file was created

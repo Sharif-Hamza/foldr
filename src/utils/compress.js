@@ -71,13 +71,16 @@ export async function compressPDF(inputPath, outputPath) {
     error: null
   };
 
-  // Check tool availability
+  // Check tool availability with detailed logging
   const qpdfAvailable = await isCommandAvailable('qpdf');
   const gsAvailable = await isCommandAvailable('gs');
 
+  console.log(`🔍 Tool detection: qpdf=${qpdfAvailable}, gs=${gsAvailable}`);
+
   if (!qpdfAvailable && !gsAvailable) {
-    console.log('⚠️ No compression tools available locally - using fallback (original file)');
-    // Don't return error, proceed to fallback mechanism
+    console.log('⚠️ No compression tools available - this should NOT happen on Railway!');
+    console.log('⚠️ Railway should have qpdf and ghostscript installed via Dockerfile');
+    // Still try to proceed, but log the issue
   } else {
     console.log(`🔧 Available tools: ${qpdfAvailable ? 'qpdf' : ''}${qpdfAvailable && gsAvailable ? ' + ' : ''}${gsAvailable ? 'ghostscript' : ''}`);
   }
@@ -116,7 +119,10 @@ export async function compressPDF(inputPath, outputPath) {
       }
 
       console.log(`🚀 Trying strategy: ${strategy.name}`);
-      await execAsync(command);
+      console.log(`📝 Command: ${command}`);
+      
+      const result = await execAsync(command, { timeout: 60000 });
+      console.log(`✅ Command executed successfully for ${strategy.name}`);
 
       const compressedSize = getFileSize(tempOutput);
       
@@ -147,6 +153,13 @@ export async function compressPDF(inputPath, outputPath) {
 
     } catch (error) {
       console.log(`❌ Strategy ${strategy.name} failed: ${error.message}`);
+      console.log(`🔍 Error details:`, error);
+      if (error.stderr) {
+        console.log(`📋 stderr:`, error.stderr);
+      }
+      if (error.stdout) {
+        console.log(`📋 stdout:`, error.stdout);
+      }
     }
   }
 

@@ -28,6 +28,39 @@ const __dirname = path.dirname(__filename);
 console.log('=== Server.js Debug ===');
 console.log('DEEPSEEK_API_KEY loaded:', !!process.env.DEEPSEEK_API_KEY);
 console.log('API Key length:', process.env.DEEPSEEK_API_KEY ? process.env.DEEPSEEK_API_KEY.length : 'undefined');
+
+// Check if compression tools are available on startup
+import { exec } from 'child_process';
+import { promisify } from 'util';
+const execAsync = promisify(exec);
+
+async function checkTools() {
+  try {
+    console.log('🔍 Checking tool availability...');
+    
+    try {
+      await execAsync('which qpdf');
+      const qpdfVersion = await execAsync('qpdf --version');
+      console.log('✅ qpdf available:', qpdfVersion.stdout.trim());
+    } catch (e) {
+      console.log('❌ qpdf NOT available');
+    }
+    
+    try {
+      await execAsync('which gs');
+      const gsVersion = await execAsync('gs --version');
+      console.log('✅ ghostscript available:', gsVersion.stdout.trim());
+    } catch (e) {
+      console.log('❌ ghostscript NOT available');
+    }
+    
+  } catch (error) {
+    console.log('🔍 Tool check failed:', error.message);
+  }
+}
+
+checkTools();
+
 console.log('====================');
 
 const app = express();
