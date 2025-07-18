@@ -54,6 +54,7 @@ export async function compressPDF(inputPath, outputPath) {
   console.log(`📋 Original: ${originalSizeMB} MB`);
 
   const strategies = [
+    { name: 'ghostscript_aggressive', tool: 'ghostscript' },
     { name: 'qpdf_aggressive', tool: 'qpdf' },
     { name: 'ghostscript_ebook', tool: 'ghostscript' },
     { name: 'ghostscript_printer', tool: 'ghostscript' },
@@ -97,6 +98,10 @@ export async function compressPDF(inputPath, outputPath) {
       let command = '';
 
       switch (strategy.name) {
+        case 'ghostscript_aggressive':
+          command = `gs -sDEVICE=pdfwrite -dCompatibilityLevel=1.4 -dPDFSETTINGS=/screen -dNOPAUSE -dBATCH -dDetectDuplicateImages=true -dCompressFonts=true -r72 -dDownsampleColorImages=true -dColorImageResolution=72 -dDownsampleGrayImages=true -dGrayImageResolution=72 -dDownsampleMonoImages=true -dMonoImageResolution=300 -dColorImageDownsampleType=/Bicubic -dGrayImageDownsampleType=/Bicubic -dMonoImageDownsampleType=/Bicubic -sOutputFile="${tempOutput}" "${inputPath}"`;
+          break;
+
         case 'qpdf_aggressive':
           command = `qpdf --linearize --compress-streams=y --decode-level=generalized --optimize-images --object-streams=generate --remove-unreferenced-resources=yes --filtered-stream-data "${inputPath}" "${tempOutput}"`;
           break;
@@ -106,15 +111,15 @@ export async function compressPDF(inputPath, outputPath) {
           break;
 
         case 'ghostscript_ebook':
-          command = `gs -sDEVICE=pdfwrite -dCompatibilityLevel=1.4 -dPDFSETTINGS=/ebook -dNOPAUSE -dQUIET -dBATCH -dDetectDuplicateImages=true -dCompressFonts=true -r150 -sOutputFile="${tempOutput}" "${inputPath}"`;
+          command = `gs -sDEVICE=pdfwrite -dCompatibilityLevel=1.4 -dPDFSETTINGS=/ebook -dNOPAUSE -dBATCH -dDetectDuplicateImages=true -dCompressFonts=true -r150 -dDownsampleColorImages=true -dColorImageResolution=150 -dDownsampleGrayImages=true -dGrayImageResolution=150 -dDownsampleMonoImages=true -dMonoImageResolution=150 -sOutputFile="${tempOutput}" "${inputPath}"`;
           break;
 
         case 'ghostscript_printer':
-          command = `gs -sDEVICE=pdfwrite -dCompatibilityLevel=1.4 -dPDFSETTINGS=/printer -dNOPAUSE -dQUIET -dBATCH -dDetectDuplicateImages=true -dCompressFonts=true -r300 -sOutputFile="${tempOutput}" "${inputPath}"`;
+          command = `gs -sDEVICE=pdfwrite -dCompatibilityLevel=1.4 -dPDFSETTINGS=/printer -dNOPAUSE -dBATCH -dDetectDuplicateImages=true -dCompressFonts=true -r300 -dDownsampleColorImages=true -dColorImageResolution=300 -sOutputFile="${tempOutput}" "${inputPath}"`;
           break;
 
         case 'ghostscript_prepress':
-          command = `gs -sDEVICE=pdfwrite -dCompatibilityLevel=1.4 -dPDFSETTINGS=/prepress -dNOPAUSE -dQUIET -dBATCH -dDetectDuplicateImages=true -dCompressFonts=true -r300 -sOutputFile="${tempOutput}" "${inputPath}"`;
+          command = `gs -sDEVICE=pdfwrite -dCompatibilityLevel=1.4 -dPDFSETTINGS=/screen -dNOPAUSE -dBATCH -dDetectDuplicateImages=true -dCompressFonts=true -r72 -dDownsampleColorImages=true -dColorImageResolution=72 -dDownsampleGrayImages=true -dGrayImageResolution=72 -sOutputFile="${tempOutput}" "${inputPath}"`;
           break;
       }
 
@@ -126,29 +131,41 @@ export async function compressPDF(inputPath, outputPath) {
 
       const compressedSize = getFileSize(tempOutput);
       
-      if (compressedSize > 0 && compressedSize < bestResult.compressedSize) {
-        // Clean up previous best result
-        if (bestResult.outputPath !== inputPath && fs.existsSync(bestResult.outputPath)) {
-          fs.unlinkSync(bestResult.outputPath);
+      console.log(`📊 ${strategy.name} result: ${formatFileSize(originalSize)} MB → ${formatFileSize(compressedSize)} MB`);
+      
+      if (compressedSize > 0) {
+        const reduction = ((originalSize - compressedSize) / originalSize) * 100;
+        console.log(`📈 Reduction: ${reduction.toFixed(1)}%`);
+        
+        if (compressedSize < bestResult.compressedSize) {
+          // Clean up previous best result
+          if (bestResult.outputPath !== inputPath && fs.existsSync(bestResult.outputPath)) {
+            fs.unlinkSync(bestResult.outputPath);
+          }
+
+          bestResult = {
+            success: true,
+            outputPath: tempOutput,
+            originalSize,
+            compressedSize,
+            compressionRatio: reduction,
+            strategy: strategy.name,
+            error: null
+          };
+
+          console.log(`✅ NEW BEST: ${formatFileSize(compressedSize)} MB (${reduction.toFixed(1)}% reduction)`);
+        } else {
+          // Clean up unsuccessful attempt
+          if (fs.existsSync(tempOutput)) {
+            fs.unlinkSync(tempOutput);
+          }
+          console.log(`❌ Strategy ${strategy.name} didn't improve on current best (${formatFileSize(bestResult.compressedSize)} MB)`);
         }
-
-        bestResult = {
-          success: true,
-          outputPath: tempOutput,
-          originalSize,
-          compressedSize,
-          compressionRatio: ((originalSize - compressedSize) / originalSize) * 100,
-          strategy: strategy.name,
-          error: null
-        };
-
-        console.log(`✅ New best: ${formatFileSize(compressedSize)} MB (${bestResult.compressionRatio.toFixed(1)}% reduction)`);
       } else {
-        // Clean up unsuccessful attempt
+        console.log(`❌ Strategy ${strategy.name} produced no output file`);
         if (fs.existsSync(tempOutput)) {
           fs.unlinkSync(tempOutput);
         }
-        console.log(`❌ Strategy ${strategy.name} didn't improve size`);
       }
 
     } catch (error) {
@@ -167,7 +184,11 @@ export async function compressPDF(inputPath, outputPath) {
   if (bestResult.success && bestResult.outputPath !== outputPath) {
     fs.renameSync(bestResult.outputPath, outputPath);
     bestResult.outputPath = outputPath;
+    console.log(`🔄 Moved best result to final path: ${outputPath}`);
   } else if (!bestResult.success) {
+    console.log('⚠️ NO COMPRESSION WORKED - This should not happen on Railway!');
+    console.log('⚠️ Copying original file as fallback');
+    
     // Copy original file if no compression worked
     fs.copyFileSync(inputPath, outputPath);
     
@@ -178,7 +199,7 @@ export async function compressPDF(inputPath, outputPath) {
       originalSize,
       compressedSize: originalSize,
       compressionRatio: 0,
-      strategy: 'None',
+      strategy: 'None (Fallback)',
       error: null
     };
   }
