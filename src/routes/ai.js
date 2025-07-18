@@ -1,22 +1,3 @@
-// Polyfill browser APIs for Node.js environment BEFORE any imports
-global.DOMMatrix = class DOMMatrix {
-  constructor() {
-    this.a = 1; this.b = 0; this.c = 0; this.d = 1; this.e = 0; this.f = 0;
-  }
-};
-
-global.ImageData = class ImageData {
-  constructor(width, height) {
-    this.width = width;
-    this.height = height;
-    this.data = new Uint8ClampedArray(width * height * 4);
-  }
-};
-
-global.Path2D = class Path2D {
-  constructor() {}
-};
-
 import express from 'express';
 import fs from 'fs';
 import path from 'path';
@@ -76,25 +57,23 @@ async function callDeepSeekAPI(messages, systemPrompt = '') {
 // Helper function to extract text from PDF using pdf-parse (Node.js compatible)
 async function extractPDFText(filePath) {
   try {
-    // Use pdf-parse which is designed for Node.js environments
-    const pdf = await import('pdf-parse');
-    const pdfParse = pdf.default;
+    // Use pdf-parse which is designed for Node.js (no DOM dependencies)
+    const pdfParse = (await import('pdf-parse')).default;
     
     const dataBuffer = fs.readFileSync(filePath);
-    const data = await pdfParse(dataBuffer);
+    const pdfData = await pdfParse(dataBuffer);
     
-    console.log(`Loading PDF with ${data.numpages} pages from ${path.basename(filePath)}`);
-    console.log(`Extracted text length: ${data.text.length} characters`);
+    console.log(`Loading PDF with ${pdfData.numpages} pages from ${path.basename(filePath)}`);
+    console.log(`Extracted text length: ${pdfData.text.length} characters`);
     
-    if (!data.text || data.text.trim().length === 0) {
+    if (!pdfData.text || pdfData.text.trim().length === 0) {
       return `PDF file "${path.basename(filePath)}" appears to be empty or contains no extractable text. This could be a scanned PDF that requires OCR processing.`;
     }
     
-    return data.text;
+    return pdfData.text;
     
   } catch (error) {
     console.error('PDF text extraction error:', error);
-    console.error('Error details:', error.stack);
     return `Error extracting text from PDF "${path.basename(filePath)}": ${error.message}. The PDF may be corrupted, password-protected, or contain only images.`;
   }
 }
