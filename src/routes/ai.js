@@ -79,11 +79,17 @@ async function extractPDFText(filePath) {
     // Dynamic import of PDF.js
     const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.mjs');
     
-    // Configure PDF.js for Node.js environment - disable workers
-    pdfjsLib.GlobalWorkerOptions.workerSrc = false;
+    // Configure PDF.js for Node.js environment - disable workers completely
+    pdfjsLib.GlobalWorkerOptions.workerSrc = '';
+    pdfjsLib.GlobalWorkerOptions.workerPort = null;
     
     const data = new Uint8Array(fs.readFileSync(filePath));
-    const loadingTask = pdfjsLib.getDocument(data);
+    const loadingTask = pdfjsLib.getDocument({
+      data: data,
+      useWorkerFetch: false,
+      isEvalSupported: false,
+      useSystemFonts: true
+    });
     const pdf = await loadingTask.promise;
     
     console.log(`Loading PDF with ${pdf.numPages} pages from ${path.basename(filePath)}`);
