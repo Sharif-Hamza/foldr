@@ -8,15 +8,27 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
 
-// Import routes
+// Configure dotenv FIRST before importing routes
+dotenv.config({ path: path.join(path.dirname(fileURLToPath(import.meta.url)), '../.env') });
+
+// Import routes AFTER dotenv is configured
 import mergeRoutes from './routes/merge.js';
 import compressRoutes from './routes/compress.js';
 import convertRoutes from './routes/convert.js';
-
-dotenv.config();
+import splitRoutes from './routes/split.js';
+import deletePagesRoutes from './routes/delete-pages.js';
+import convertOfficeRoutes from './routes/convert-office.js';
+import pdfOperationsRoutes from './routes/pdf-operations.js';
+import aiRoutes from './routes/ai.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// Debug: Check if API key is loaded
+console.log('=== Server.js Debug ===');
+console.log('DEEPSEEK_API_KEY loaded:', !!process.env.DEEPSEEK_API_KEY);
+console.log('API Key length:', process.env.DEEPSEEK_API_KEY ? process.env.DEEPSEEK_API_KEY.length : 'undefined');
+console.log('====================');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -67,9 +79,11 @@ const getBaseOrigin = (url) => {
 
 const allowedOrigins = [
   getBaseOrigin(process.env.FRONTEND_URL),
-  'https://stellar-kashata-5b896a.netlify.app', // Production frontend
+  'https://foldr.online', // Primary production frontend
+  'https://stellar-kashata-5b896a.netlify.app', // Netlify frontend
   'http://localhost:5173',
-  'http://localhost:5174'
+  'http://localhost:5174',
+  'http://localhost:5175'
 ].filter(Boolean);
 
 app.use(cors({
@@ -101,6 +115,11 @@ app.get('/api/health', (req, res) => {
 app.use('/api/pdf', mergeRoutes);
 app.use('/api/pdf', compressRoutes);
 app.use('/api/pdf', convertRoutes);
+app.use('/api/pdf', splitRoutes);
+app.use('/api/pdf', deletePagesRoutes);
+app.use('/api/pdf', convertOfficeRoutes);
+app.use('/api/pdf', pdfOperationsRoutes);
+app.use('/api/ai', aiRoutes);
 
 // Serve static files (output PDFs)
 app.use('/api/download', express.static(outputDir));

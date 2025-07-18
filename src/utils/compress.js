@@ -11,7 +11,9 @@ const execAsync = promisify(exec);
  */
 async function isCommandAvailable(command) {
   try {
-    await execAsync(`which ${command}`);
+    // Use cross-platform command detection
+    const checkCommand = process.platform === 'win32' ? `where ${command}` : `which ${command}`;
+    await execAsync(checkCommand);
     return true;
   } catch (error) {
     return false;
@@ -74,14 +76,11 @@ export async function compressPDF(inputPath, outputPath) {
   const gsAvailable = await isCommandAvailable('gs');
 
   if (!qpdfAvailable && !gsAvailable) {
-    console.log('❌ No compression tools available');
-    return {
-      ...bestResult,
-      error: 'No compression tools available'
-    };
+    console.log('⚠️ No compression tools available locally - using fallback (original file)');
+    // Don't return error, proceed to fallback mechanism
+  } else {
+    console.log(`🔧 Available tools: ${qpdfAvailable ? 'qpdf' : ''}${qpdfAvailable && gsAvailable ? ' + ' : ''}${gsAvailable ? 'ghostscript' : ''}`);
   }
-
-  console.log(`🔧 Available tools: ${qpdfAvailable ? 'qpdf' : ''}${qpdfAvailable && gsAvailable ? ' + ' : ''}${gsAvailable ? 'ghostscript' : ''}`);
 
   // Try each compression strategy
   for (const strategy of strategies) {

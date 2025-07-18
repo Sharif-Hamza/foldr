@@ -28,16 +28,29 @@ const fileFilter = (req, file, cb) => {
 
   let allowed = false;
   
-  if (req.route.path.includes('merge') || req.route.path.includes('compress')) {
+  // PDF routes - all these routes accept PDF files
+  const pdfRoutes = ['merge', 'compress', 'split', 'reorder', 'delete-pages', 'extract-text', 'extract-images', 'protect', 'unlock', 'lock-pdf', 'unlock-pdf', 'pdf-to-word', 'pdf-to-excel', 'edit-metadata'];
+  const aiPdfRoutes = ['chat-with-pdf', 'summarize-pdf', 'extract-tables', 'explain', 'highlight'];
+  
+  // Check if route accepts PDFs
+  const routePath = req.route.path;
+  const originalUrl = req.originalUrl;
+  
+  const acceptsPdf = pdfRoutes.some(route => routePath.includes(route)) || 
+                    aiPdfRoutes.some(route => routePath.includes(route)) ||
+                    originalUrl.includes('/lock-pdf') || 
+                    originalUrl.includes('/unlock-pdf');
+  
+  if (acceptsPdf) {
     allowed = allowedMimes.pdf.includes(file.mimetype);
-  } else if (req.route.path.includes('convert')) {
+  } else if (routePath.includes('convert') || originalUrl.includes('convert')) {
     allowed = allowedMimes.image.includes(file.mimetype);
   }
 
   if (allowed) {
     cb(null, true);
   } else {
-    cb(new Error(`Invalid file type. Expected: ${req.route.path.includes('convert') ? 'images' : 'PDF files'}`), false);
+    cb(new Error(`Invalid file type. Expected: ${routePath.includes('convert') || originalUrl.includes('convert') ? 'images' : 'PDF files'}`), false);
   }
 };
 
