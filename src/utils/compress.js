@@ -52,6 +52,8 @@ export async function compressPDF(inputPath, outputPath) {
   
   console.log(`🔥 PROFESSIONAL PDF COMPRESSION: ${path.basename(inputPath)}`);
   console.log(`📋 Original: ${originalSizeMB} MB`);
+  console.log(`📂 Input path: ${inputPath}`);
+  console.log(`📂 Output path: ${outputPath}`);
 
   const strategies = [
     { name: 'ghostscript_aggressive', tool: 'ghostscript' },

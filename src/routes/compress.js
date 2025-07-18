@@ -39,10 +39,15 @@ router.post('/compress', upload.single('file'), async (req, res) => {
     const outputFilename = `compressed_${fileId}.pdf`;
     outputPath = path.join(compressedDir, outputFilename);
 
+    console.log('🚀 STARTING COMPRESSION WITH DETAILED LOGGING...');
+    
     // Compress the PDF using the new professional compression system
     const compressionResult = await compressPDF(inputPath, outputPath);
 
+    console.log('🔍 COMPRESSION RESULT:', JSON.stringify(compressionResult, null, 2));
+
     if (!compressionResult.success) {
+      console.error('❌ COMPRESSION FAILED:', compressionResult.error);
       throw new Error(compressionResult.error || 'Compression failed');
     }
 
@@ -56,32 +61,30 @@ router.post('/compress', upload.single('file'), async (req, res) => {
     console.log(`📊 Size: ${originalSizeMB} MB → ${compressedSizeMB} MB`);
     console.log(`💾 Saved: ${savingsMB} MB (${compressionResult.compressionRatio.toFixed(1)}%)`);
 
+    // FORCE FAIL IF NO ACTUAL COMPRESSION HAPPENED
+    if (compressionResult.compressionRatio === 0) {
+      console.log('🚨 FORCING FAILURE - NO COMPRESSION ACHIEVED!');
+      throw new Error('Compression tools available but no compression achieved - all strategies failed');
+    }
+
     // Clean up input file
     cleanupFiles(path.dirname(inputPath), 0.1); // Clean files older than 6 minutes
 
-    // CRITICAL FIX: Return the actual compressed file as blob instead of JSON
-    // Set headers for file download
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="${outputFilename}"`);
-    res.setHeader('X-Compression-Stats', JSON.stringify({
+    // Return JSON response (not file stream) for frontend
+    res.json({
+      success: true,
+      message: `PDF compressed successfully with ${compressionResult.strategy}`,
+      filename: outputFilename,
+      downloadUrl: `/api/download/${outputFilename}`,
+      originalName: req.file.originalname,
       originalSize: compressionResult.originalSize,
       compressedSize: compressionResult.compressedSize,
       compressionRatio: compressionResult.compressionRatio,
-      strategy: compressionResult.strategy
-    }));
-
-    // Stream the compressed file
-    const fileStream = fs.createReadStream(outputPath);
-    fileStream.pipe(res);
-
-    // Clean up the compressed file after streaming
-    fileStream.on('end', () => {
-      setTimeout(() => {
-        if (fs.existsSync(outputPath)) {
-          fs.unlinkSync(outputPath);
-          console.log(`🗑️ Cleaned up compressed file: ${outputFilename}`);
-        }
-      }, 1000); // Small delay to ensure file is fully sent
+      strategy: compressionResult.strategy,
+      savings: {
+        bytes: savings,
+        mb: savingsMB
+      }
     });
 
   } catch (error) {
