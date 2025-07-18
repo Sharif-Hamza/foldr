@@ -73,38 +73,24 @@ async function callDeepSeekAPI(messages, systemPrompt = '') {
   return data.choices[0].message.content;
 }
 
-// Helper function to extract text from PDF using PDF.js
+// Helper function to extract text from PDF using pdf-parse (Node.js compatible)
 async function extractPDFText(filePath) {
   try {
-    // Dynamic import of PDF.js
-    const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.mjs');
+    // Use pdf-parse which is designed for Node.js environments
+    const pdf = await import('pdf-parse');
+    const pdfParse = pdf.default;
     
-    // Configure PDF.js for Node.js environment - provide a valid worker source
-    pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;
+    const dataBuffer = fs.readFileSync(filePath);
+    const data = await pdfParse(dataBuffer);
     
-    const data = new Uint8Array(fs.readFileSync(filePath));
-    const loadingTask = pdfjsLib.getDocument(data);
-    const pdf = await loadingTask.promise;
+    console.log(`Loading PDF with ${data.numpages} pages from ${path.basename(filePath)}`);
+    console.log(`Extracted text length: ${data.text.length} characters`);
     
-    console.log(`Loading PDF with ${pdf.numPages} pages from ${path.basename(filePath)}`);
-    
-    let fullText = '';
-    
-    // Extract text from all pages
-    for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-      const page = await pdf.getPage(pageNum);
-      const textContent = await page.getTextContent();
-      const pageText = textContent.items.map(item => item.str).join(' ');
-      fullText += `Page ${pageNum}:\n${pageText}\n\n`;
-    }
-    
-    console.log(`Extracted text length: ${fullText.length} characters`);
-    
-    if (!fullText || fullText.trim().length === 0) {
+    if (!data.text || data.text.trim().length === 0) {
       return `PDF file "${path.basename(filePath)}" appears to be empty or contains no extractable text. This could be a scanned PDF that requires OCR processing.`;
     }
     
-    return fullText;
+    return data.text;
     
   } catch (error) {
     console.error('PDF text extraction error:', error);
