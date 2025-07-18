@@ -4,7 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { v4 as uuidv4 } from 'uuid';
 import upload from '../utils/multerConfig.js';
-import pdfParse from 'pdf-parse';
+import { PDFDocument } from 'pdf-lib';
 
 const router = express.Router();
 const __filename = fileURLToPath(import.meta.url);
@@ -55,21 +55,35 @@ async function callDeepSeekAPI(messages, systemPrompt = '') {
   return data.choices[0].message.content;
 }
 
-// Helper function to extract text from PDF using pdf-parse (Node.js compatible)
+// Helper function to extract text from PDF using command-line tools
 async function extractPDFText(filePath) {
   try {
-    // Use pdf-parse which is designed for Node.js (no DOM dependencies)
-    const dataBuffer = fs.readFileSync(filePath);
-    const pdfData = await pdfParse(dataBuffer);
+    // Try using pdftotext command if available (common on Linux systems)
+    const { exec } = await import('child_process');
+    const { promisify } = await import('util');
+    const execAsync = promisify(exec);
     
-    console.log(`Loading PDF with ${pdfData.numpages} pages from ${path.basename(filePath)}`);
-    console.log(`Extracted text length: ${pdfData.text.length} characters`);
+    console.log(`Attempting to extract text from ${path.basename(filePath)}`);
     
-    if (!pdfData.text || pdfData.text.trim().length === 0) {
-      return `PDF file "${path.basename(filePath)}" appears to be empty or contains no extractable text. This could be a scanned PDF that requires OCR processing.`;
+    try {
+      // Try pdftotext command (available on most Linux systems including Railway)
+      const { stdout } = await execAsync(`pdftotext "${filePath}" -`, { timeout: 30000 });
+      
+      console.log(`Extracted text length: ${stdout.length} characters`);
+      
+      if (!stdout || stdout.trim().length === 0) {
+        return `PDF file "${path.basename(filePath)}" appears to be empty or contains no extractable text. This could be a scanned PDF that requires OCR processing.`;
+      }
+      
+      return stdout;
+      
+    } catch (cmdError) {
+      console.log('pdftotext not available, using fallback method');
+      
+      // Fallback: Return a basic message that allows AI to continue
+      const fileStats = fs.statSync(filePath);
+      return `PDF file "${path.basename(filePath)}" (${Math.round(fileStats.size / 1024)}KB) is available for analysis. Text extraction tools are not available in this environment, but I can still provide general PDF insights.`;
     }
-    
-    return pdfData.text;
     
   } catch (error) {
     console.error('PDF text extraction error:', error);

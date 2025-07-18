@@ -1,18 +1,21 @@
 # Use the official Node.js runtime as base image
 FROM node:18-alpine
 
-# Install qpdf, ghostscript, and Sharp dependencies with proper verification
+# Install qpdf, ghostscript, poppler-utils, and Sharp dependencies with proper verification
 RUN apk add --no-cache \
     qpdf \
     ghostscript \
+    poppler-utils \
     vips-dev \
     python3 \
     make \
     g++ \
     && which qpdf \
     && which gs \
+    && which pdftotext \
     && qpdf --version \
-    && gs --version
+    && gs --version \
+    && pdftotext -v
 
 # Set the working directory
 WORKDIR /app
