@@ -60,6 +60,9 @@ async function extractPDFText(filePath) {
     // Dynamic import of PDF.js
     const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.mjs');
     
+    // Configure PDF.js for Node.js environment - disable workers
+    pdfjsLib.GlobalWorkerOptions.workerSrc = false;
+    
     const data = new Uint8Array(fs.readFileSync(filePath));
     const loadingTask = pdfjsLib.getDocument(data);
     const pdf = await loadingTask.promise;
@@ -86,6 +89,7 @@ async function extractPDFText(filePath) {
     
   } catch (error) {
     console.error('PDF text extraction error:', error);
+    console.error('Error details:', error.stack);
     return `Error extracting text from PDF "${path.basename(filePath)}": ${error.message}. The PDF may be corrupted, password-protected, or contain only images.`;
   }
 }
