@@ -13,28 +13,184 @@ const __dirname = path.dirname(__filename);
 // DeepSeek API configuration
 const DEEPSEEK_API_URL = 'https://api.deepseek.com/v1/chat/completions';
 
-// Helper function to call DeepSeek API
-async function callDeepSeekAPI(messages, systemPrompt = '') {
-  // Read API key inside function to ensure dotenv has loaded
-  const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
+// Advanced Document Type Detection System
+const DocumentTypes = {
+  SCHEDULE: 'schedule',
+  INVOICE: 'invoice',
+  CONTRACT: 'contract',
+  ACADEMIC: 'academic',
+  TECHNICAL: 'technical',
+  REPORT: 'report',
+  RESUME: 'resume',
+  MEDICAL: 'medical',
+  LEGAL: 'legal',
+  FINANCIAL: 'financial',
+  PROPOSAL: 'proposal',
+  PRESENTATION: 'presentation',
+  EMAIL: 'email',
+  SYLLABUS: 'syllabus',
+  CAR_DETAILS: 'car_details',
+  REAL_ESTATE: 'real_estate',
+  UNKNOWN: 'unknown'
+};
+
+// Document type detection patterns
+const documentTypePatterns = {
+  [DocumentTypes.SCHEDULE]: /schedule|calendar|timeline|agenda|itinerary|timetable/i,
+  [DocumentTypes.INVOICE]: /invoice|bill|receipt|payment|amount due|total|subtotal/i,
+  [DocumentTypes.CONTRACT]: /agreement|contract|terms and conditions|party|parties|obligations/i,
+  [DocumentTypes.ACADEMIC]: /homework|assignment|due date|submission|grade|course|professor|student/i,
+  [DocumentTypes.TECHNICAL]: /specification|manual|instructions|installation|configuration|requirements/i,
+  [DocumentTypes.REPORT]: /executive summary|findings|recommendations|analysis|conclusion/i,
+  [DocumentTypes.RESUME]: /resume|cv|curriculum vitae|experience|education|skills/i,
+  [DocumentTypes.MEDICAL]: /patient|diagnosis|prescription|medical|health|doctor|treatment/i,
+  [DocumentTypes.LEGAL]: /plaintiff|defendant|court|legal|law|statute|regulation/i,
+  [DocumentTypes.FINANCIAL]: /financial statement|balance sheet|income statement|profit|loss|revenue/i,
+  [DocumentTypes.PROPOSAL]: /proposal|proposed|offering|solution|approach|methodology/i,
+  [DocumentTypes.PRESENTATION]: /slide|presentation|deck|pitch|overview/i,
+  [DocumentTypes.EMAIL]: /from:|to:|subject:|dear|regards|sincerely/i,
+  [DocumentTypes.SYLLABUS]: /syllabus|course outline|learning objectives|grading|attendance/i,
+  [DocumentTypes.CAR_DETAILS]: /vehicle|car|model|make|year|mileage|price|features|engine/i,
+  [DocumentTypes.REAL_ESTATE]: /property|listing|bedrooms|bathrooms|square feet|lot size|asking price/i
+};
+
+// Advanced document type detection function
+function detectDocumentType(text) {
+  const lowerText = text.toLowerCase();
+  let scores = {};
   
-  console.log('=== AI Function Debug ===');
-  console.log('DEEPSEEK_API_KEY exists:', !!DEEPSEEK_API_KEY);
-  console.log('DEEPSEEK_API_KEY length:', DEEPSEEK_API_KEY ? DEEPSEEK_API_KEY.length : 'undefined');
-  console.log('=========================');
+  // Score each document type based on pattern matches
+  for (const [type, pattern] of Object.entries(documentTypePatterns)) {
+    const matches = lowerText.match(pattern);
+    scores[type] = matches ? matches.length : 0;
+  }
+  
+  // Additional scoring based on specific keywords
+  if (lowerText.includes('due') && lowerText.includes('assignment')) scores[DocumentTypes.ACADEMIC] += 5;
+  if (lowerText.includes('$') || lowerText.includes('€') || lowerText.includes('£')) scores[DocumentTypes.INVOICE] += 3;
+  if (lowerText.includes('deadline') || lowerText.includes('due date')) scores[DocumentTypes.SCHEDULE] += 3;
+  if (lowerText.includes('bmw') || lowerText.includes('mercedes') || lowerText.includes('toyota')) scores[DocumentTypes.CAR_DETAILS] += 5;
+  
+  // Find the type with highest score
+  let maxScore = 0;
+  let detectedType = DocumentTypes.UNKNOWN;
+  
+  for (const [type, score] of Object.entries(scores)) {
+    if (score > maxScore) {
+      maxScore = score;
+      detectedType = type;
+    }
+  }
+  
+  return {
+    type: detectedType,
+    confidence: maxScore > 0 ? Math.min(maxScore / 10, 1) : 0,
+    allScores: scores
+  };
+}
+
+// Context-aware prompts for different document types
+const documentTypePrompts = {
+  [DocumentTypes.SCHEDULE]: {
+    systemPrompt: `You are an advanced scheduling and time management AI expert. Your analysis focuses on temporal intelligence, deadline management, and actionable calendar insights.`,
+    userPrompt: `Extract and analyze all time-critical information including:
+- All dates, times, and deadlines with their context
+- Recurring events and patterns
+- Conflicts or overlapping schedules
+- Priority levels and urgency indicators
+- Action items with time constraints
+- Recommended scheduling optimizations`
+  },
+  
+  [DocumentTypes.INVOICE]: {
+    systemPrompt: `You are a financial document analysis expert specializing in invoice processing, payment terms, and financial risk assessment.`,
+    userPrompt: `Perform comprehensive financial analysis including:
+- Total amounts, subtotals, taxes, and fees
+- Payment terms and due dates
+- Late payment penalties or discounts
+- Vendor/customer information
+- Line items and cost breakdown
+- Payment methods and instructions
+- Financial risks or red flags`
+  },
+  
+  [DocumentTypes.CONTRACT]: {
+    systemPrompt: `You are a legal document analysis expert specializing in contract review, risk assessment, and obligation extraction.`,
+    userPrompt: `Analyze this contract for:
+- Parties involved and their obligations
+- Key terms, conditions, and clauses
+- Payment terms and amounts
+- Deadlines and milestones
+- Termination conditions
+- Penalties and liabilities
+- Rights and restrictions
+- Potential risks and red flags`
+  },
+  
+  [DocumentTypes.ACADEMIC]: {
+    systemPrompt: `You are an academic assistant expert in analyzing educational documents, assignments, and study materials.`,
+    userPrompt: `Extract and analyze:
+- Assignment due dates and submission requirements
+- Grading criteria and point values
+- Required materials or readings
+- Learning objectives
+- Important topics to study
+- Professor/instructor contact information
+- Academic policies and penalties
+- Study recommendations and priorities`
+  },
+  
+  [DocumentTypes.CAR_DETAILS]: {
+    systemPrompt: `You are an automotive expert specializing in vehicle analysis, pricing evaluation, and purchase recommendations.`,
+    userPrompt: `Analyze this vehicle information for:
+- Make, model, year, and trim level
+- Price and market value assessment
+- Mileage and condition
+- Features and specifications
+- Maintenance history or requirements
+- Dealer/seller information
+- Contact details and next steps
+- Red flags or concerns
+- Negotiation points
+- Comparable market analysis`
+  },
+  
+  [DocumentTypes.SYLLABUS]: {
+    systemPrompt: `You are an educational planning expert specializing in course analysis and academic success strategies.`,
+    userPrompt: `Extract and analyze:
+- Course schedule and important dates
+- Assignment due dates and weights
+- Exam dates and formats
+- Grading breakdown
+- Required materials and textbooks
+- Attendance policies
+- Professor contact information and office hours
+- Academic policies and penalties
+- Study strategy recommendations
+- Time management suggestions`
+  }
+};
+
+// Enhanced helper function to call DeepSeek API with optimal parameters
+async function callDeepSeekAPI(messages, systemPrompt = '', temperature = 0.6) {
+  const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
   
   if (!DEEPSEEK_API_KEY) {
     throw new Error('DeepSeek API key not configured');
   }
 
+  // Optimal parameters based on DeepSeek best practices research
   const requestBody = {
     model: 'deepseek-chat',
     messages: [
       ...(systemPrompt ? [{ role: 'system', content: systemPrompt }] : []),
       ...messages
     ],
-    max_tokens: 4000,
-    temperature: 0.7
+    max_tokens: 8000, // Increased for comprehensive analysis
+    temperature: temperature, // Optimal for balanced output
+    top_p: 0.95, // Recommended by DeepSeek
+    top_k: 30, // Additional control
+    min_p: 0.03 // Minimum probability threshold
   };
 
   const response = await fetch(DEEPSEEK_API_URL, {
@@ -53,6 +209,41 @@ async function callDeepSeekAPI(messages, systemPrompt = '') {
 
   const data = await response.json();
   return data.choices[0].message.content;
+}
+
+// Enhanced business sentiment analysis
+function analyzeSentiment(text, documentType) {
+  const sentimentIndicators = {
+    positive: /opportunity|growth|success|achieved|exceeded|improvement|excellent|outstanding|profitable|advantage/i,
+    negative: /risk|concern|issue|problem|delay|failure|loss|deficit|warning|critical|urgent|penalty/i,
+    neutral: /information|update|status|report|summary|overview|standard|typical|normal|average/i
+  };
+  
+  let sentimentScores = {
+    positive: (text.match(sentimentIndicators.positive) || []).length,
+    negative: (text.match(sentimentIndicators.negative) || []).length,
+    neutral: (text.match(sentimentIndicators.neutral) || []).length
+  };
+  
+  // Document type specific adjustments
+  if (documentType === DocumentTypes.INVOICE && text.includes('overdue')) {
+    sentimentScores.negative += 5;
+  }
+  if (documentType === DocumentTypes.CONTRACT && text.includes('penalty')) {
+    sentimentScores.negative += 3;
+  }
+  
+  const total = sentimentScores.positive + sentimentScores.negative + sentimentScores.neutral;
+  const sentiment = sentimentScores.positive > sentimentScores.negative ? 'positive' : 
+                   sentimentScores.negative > sentimentScores.positive ? 'negative' : 'neutral';
+  
+  return {
+    sentiment,
+    confidence: total > 0 ? Math.max(sentimentScores[sentiment] / total, 0.5) : 0.5,
+    scores: sentimentScores,
+    businessImpact: sentiment === 'negative' ? 'Requires immediate attention' : 
+                    sentiment === 'positive' ? 'Favorable conditions' : 'Standard operations'
+  };
 }
 
 // Helper function to extract text from PDF using command-line tools
@@ -91,7 +282,7 @@ async function extractPDFText(filePath) {
   }
 }
 
-// Chat with PDF endpoint
+// Advanced Chat with PDF endpoint - DeepSeek Wrapper Style
 router.post('/chat-with-pdf', upload.single('file'), async (req, res) => {
   try {
     if (!req.file) {
@@ -104,9 +295,8 @@ router.post('/chat-with-pdf', upload.single('file'), async (req, res) => {
 
     const { question = 'Please summarize this document.' } = req.body;
 
-    console.log(`Starting PDF chat: ${req.file.originalname}`);
-    console.log(`File path: ${req.file.path}`);
-    console.log(`File exists: ${fs.existsSync(req.file.path)}`);
+    console.log(`🤖 Advanced PDF chat: ${req.file.originalname}`);
+    console.log(`Question: ${question}`);
     
     // Check if file exists before processing
     if (!fs.existsSync(req.file.path)) {
@@ -115,40 +305,83 @@ router.post('/chat-with-pdf', upload.single('file'), async (req, res) => {
 
     // Extract text from PDF
     const pdfText = await extractPDFText(req.file.path);
+    
+    // Detect document type for better context understanding
+    const documentTypeInfo = detectDocumentType(pdfText);
+    console.log(`Document type: ${documentTypeInfo.type} (confidence: ${documentTypeInfo.confidence})`);
+    
+    // Advanced system prompt based on document type
+    const baseSystemPrompt = `You are an extremely intelligent AI assistant with deep expertise in ${documentTypeInfo.type} documents. You have complete access to the document content and can:
 
-    // Prepare messages for DeepSeek
-    const systemPrompt = `You are an intelligent PDF document assistant. You have access to the full text content of a specific PDF document. Your role is to:
+1. Answer ANY question about the document with perfect accuracy
+2. Find specific information no matter how deeply buried
+3. Explain complex concepts in simple terms
+4. Perform calculations and analysis on document data
+5. Identify patterns, relationships, and insights
+6. Provide actionable recommendations
+7. Cross-reference different parts of the document
 
-1. Answer questions directly based on the document content
-2. Provide detailed, helpful responses
-3. Quote specific sections when relevant
-4. If asked to summarize, provide a comprehensive summary
-5. If asked specific questions, focus on answering those questions precisely
-6. Write in clear, natural language without markdown formatting, special characters, or JSON formatting
-7. Be conversational and helpful
+You think step-by-step through problems and provide comprehensive, accurate answers. You're like having a subject matter expert who has memorized every detail of the document.`;
 
-Always base your responses on the actual document content provided.`;
+    // Document type specific enhancements
+    const typeEnhancements = {
+      [DocumentTypes.ACADEMIC]: `You excel at helping with homework, explaining concepts, solving problems, and providing study guidance.`,
+      [DocumentTypes.FINANCIAL]: `You can perform financial calculations, analyze trends, and provide investment insights.`,
+      [DocumentTypes.CONTRACT]: `You understand legal language and can explain obligations, risks, and important clauses.`,
+      [DocumentTypes.TECHNICAL]: `You can explain technical procedures, troubleshoot issues, and provide implementation guidance.`,
+      [DocumentTypes.MEDICAL]: `You can explain medical terms, procedures, and help understand health information (but always remind users to consult healthcare providers).`,
+      [DocumentTypes.SCHEDULE]: `You can analyze schedules, find conflicts, suggest optimizations, and track deadlines.`
+    };
+    
+    const systemPrompt = `${baseSystemPrompt}
+
+${typeEnhancements[documentTypeInfo.type] || ''}
+
+Remember:
+- Be conversational and friendly
+- Provide detailed, thorough answers
+- Use examples from the document
+- If asked about something not in the document, say so clearly
+- Format your responses with clear paragraphs, not JSON or markdown
+- Think deeply about the question and provide comprehensive insights`;
+    
+    // Enhanced question analysis
+    const questionAnalysis = analyzeQuestion(question);
     
     const messages = [
       { 
         role: 'user', 
-        content: `I have uploaded a PDF document. Here is the full text content:
+        content: `I have uploaded a ${documentTypeInfo.type} document. 
 
+Document content:
 ${pdfText}
 
-Now please help me with this request: ${question}
+${questionAnalysis.requiresCalculation ? 'Please perform any necessary calculations.' : ''}
+${questionAnalysis.requiresSummary ? 'Please provide a comprehensive summary.' : ''}
+${questionAnalysis.requiresSpecificInfo ? 'Please find the specific information requested.' : ''}
 
-Please provide a detailed response based on the document content.` 
+My question: ${question}
+
+Please provide a detailed, helpful response based on the document content. If this involves homework or problem-solving, please explain your reasoning step-by-step.` 
       }
     ];
 
-    // Call DeepSeek API
-    const aiResponse = await callDeepSeekAPI(messages, systemPrompt);
+    // Call DeepSeek API with optimal parameters
+    const aiResponse = await callDeepSeekAPI(messages, systemPrompt, 0.7); // Slightly higher temperature for more creative responses
+
+    // Extract key insights from the response
+    const responseInsights = {
+      hasCalculations: /\d+[\+\-\*\/]\d+|=\s*\d+/.test(aiResponse),
+      hasQuotes: /"[^"]+"|'[^']+'/.test(aiResponse),
+      hasRecommendations: /recommend|suggest|should|advice/i.test(aiResponse),
+      responseLength: aiResponse.split(' ').length,
+      confidence: aiResponse.includes('unclear') || aiResponse.includes('not found') ? 'Medium' : 'High'
+    };
 
     // Clean up uploaded file
     fs.unlinkSync(req.file.path);
 
-    console.log(`PDF chat completed for: ${req.file.originalname}`);
+    console.log(`🤖 PDF chat completed: ${responseInsights.responseLength} words, ${responseInsights.confidence} confidence`);
 
     res.json({
       success: true,
@@ -160,11 +393,19 @@ Please provide a detailed response based on the document content.`
       chatHistory: [
         { role: 'user', content: question },
         { role: 'assistant', content: aiResponse }
-      ]
+      ],
+      insights: {
+        documentType: documentTypeInfo.type,
+        questionType: questionAnalysis.type,
+        responseConfidence: responseInsights.confidence,
+        hasCalculations: responseInsights.hasCalculations,
+        hasQuotes: responseInsights.hasQuotes,
+        hasRecommendations: responseInsights.hasRecommendations
+      }
     });
 
   } catch (error) {
-    console.error('PDF chat error:', error);
+    console.error('❌ PDF chat error:', error);
     
     if (req.file && fs.existsSync(req.file.path)) {
       fs.unlinkSync(req.file.path);
@@ -177,10 +418,28 @@ Please provide a detailed response based on the document content.`
   }
 });
 
-// Continue conversation with PDF endpoint
+// Helper function to analyze question type
+function analyzeQuestion(question) {
+  const lowerQuestion = question.toLowerCase();
+  
+  return {
+    type: lowerQuestion.includes('calculate') || lowerQuestion.includes('solve') ? 'calculation' :
+          lowerQuestion.includes('summarize') || lowerQuestion.includes('summary') ? 'summary' :
+          lowerQuestion.includes('explain') || lowerQuestion.includes('what is') ? 'explanation' :
+          lowerQuestion.includes('find') || lowerQuestion.includes('where') ? 'search' :
+          lowerQuestion.includes('compare') || lowerQuestion.includes('difference') ? 'comparison' :
+          'general',
+    requiresCalculation: /calculate|solve|compute|add|subtract|multiply|divide/.test(lowerQuestion),
+    requiresSummary: /summarize|summary|overview|brief/.test(lowerQuestion),
+    requiresSpecificInfo: /find|locate|where|when|who|what|which/.test(lowerQuestion),
+    isHomeworkHelp: /homework|assignment|problem|exercise|question \d+/.test(lowerQuestion)
+  };
+}
+
+// Continue conversation with PDF endpoint - Enhanced
 router.post('/continue-chat', async (req, res) => {
   try {
-    const { message, chatHistory, pdfText } = req.body;
+    const { message, chatHistory, pdfText, documentType } = req.body;
 
     if (!message) {
       return res.status(400).json({ error: 'No message provided' });
@@ -190,46 +449,84 @@ router.post('/continue-chat', async (req, res) => {
       return res.status(400).json({ error: 'No PDF text context provided' });
     }
 
-    console.log(`Continuing PDF chat conversation`);
+    console.log(`🤖 Continuing PDF chat conversation`);
+    
+    // Detect document type if not provided
+    const docType = documentType || detectDocumentType(pdfText).type;
+    
+    // Analyze the new question
+    const questionAnalysis = analyzeQuestion(message);
 
-    // Prepare messages for DeepSeek with chat history
-    const systemPrompt = `You are an intelligent PDF document assistant. You have access to the full text content of a specific PDF document. Your role is to:
+    // Enhanced system prompt for continuation
+    const systemPrompt = `You are an extremely intelligent AI assistant continuing a conversation about a ${docType} document. You have:
 
-1. Answer questions directly based on the document content
-2. Provide detailed, helpful responses
-3. Quote specific sections when relevant
-4. Maintain context from previous conversation
-5. Write in clear, natural language without markdown formatting, special characters, or JSON formatting
-6. Be conversational and helpful
+1. Complete access to the document content
+2. Full context of the previous conversation
+3. Deep understanding of the subject matter
+4. Ability to build on previous answers
 
-Always base your responses on the actual document content provided.`;
+Remember:
+- Reference previous responses when relevant
+- Provide consistent information
+- Deepen the analysis with each response
+- Stay friendly and conversational
+- Format responses clearly without markdown
+
+You're like having a dedicated expert who remembers everything discussed and can provide increasingly detailed insights.`;
+    
+    // Build conversation with proper context
+    const enhancedHistory = chatHistory ? chatHistory.map(msg => ({
+      role: msg.role,
+      content: msg.content
+    })) : [];
     
     const messages = [
       { 
         role: 'system', 
-        content: `PDF Document Content:\n\n${pdfText}` 
+        content: `${systemPrompt}\n\nDocument Content:\n${pdfText}` 
       },
-      ...(chatHistory || []),
+      ...enhancedHistory,
       { 
         role: 'user', 
-        content: message 
+        content: `${message}
+
+${questionAnalysis.requiresCalculation ? 'Please show your calculations step-by-step.' : ''}
+${questionAnalysis.isHomeworkHelp ? 'This appears to be homework - please explain the concepts thoroughly to help me learn.' : ''}` 
       }
     ];
 
-    // Call DeepSeek API
-    const aiResponse = await callDeepSeekAPI(messages.slice(1), systemPrompt); // Remove system message for API call
+    // Call DeepSeek API with optimal parameters
+    const aiResponse = await callDeepSeekAPI(
+      messages.slice(1), // Remove system message
+      messages[0].content, // Pass system content separately
+      0.7
+    );
+    
+    // Analyze response quality
+    const responseQuality = {
+      buildsOnPrevious: chatHistory && chatHistory.length > 0 && 
+                       (aiResponse.includes('mentioned') || aiResponse.includes('discussed') || 
+                        aiResponse.includes('earlier') || aiResponse.includes('previously')),
+      providesNewInsight: aiResponse.length > 200,
+      answersDirectly: !aiResponse.includes('not sure') && !aiResponse.includes('unclear')
+    };
 
-    console.log(`PDF chat conversation continued`);
+    console.log(`🤖 Chat continued: ${responseQuality.answersDirectly ? 'Direct answer' : 'Needs clarification'}`);
 
     res.json({
       success: true,
       message: 'AI response generated successfully',
       aiResponse: aiResponse,
-      userMessage: message
+      userMessage: message,
+      insights: {
+        questionType: questionAnalysis.type,
+        responseQuality: responseQuality,
+        conversationDepth: enhancedHistory.length / 2 + 1 // Number of exchanges
+      }
     });
 
   } catch (error) {
-    console.error('PDF chat continuation error:', error);
+    console.error('❌ PDF chat continuation error:', error);
     
     res.status(500).json({
       error: 'Failed to continue chat',
@@ -304,8 +601,6 @@ router.post('/summarize-pdf', upload.single('file'), async (req, res) => {
     }
 
     console.log(`📝 Advanced AI summarization: ${req.file.originalname}`);
-    console.log(`File path: ${req.file.path}`);
-    console.log(`File exists: ${fs.existsSync(req.file.path)}`);
     
     // Check if file exists before processing
     if (!fs.existsSync(req.file.path)) {
@@ -314,77 +609,105 @@ router.post('/summarize-pdf', upload.single('file'), async (req, res) => {
 
     // Extract text from PDF
     const pdfText = await extractPDFText(req.file.path);
+    
+    // Detect document type for contextual summarization
+    const documentTypeInfo = detectDocumentType(pdfText);
+    console.log(`Document type: ${documentTypeInfo.type} (confidence: ${documentTypeInfo.confidence})`);
+    
+    // Perform initial sentiment analysis
+    const documentSentiment = analyzeSentiment(pdfText, documentTypeInfo.type);
 
-    // Advanced AI system prompt for intelligent summarization
-    const systemPrompt = `You are an advanced AI document intelligence expert specializing in comprehensive content analysis and summarization. Your expertise includes:
+    // Advanced AI system prompt based on document type
+    const baseSystemPrompt = `You are an advanced AI document intelligence expert specializing in ${documentTypeInfo.type} analysis and summarization. Your expertise is tailored to extract maximum value from this specific type of document.`;
+    
+    // Document type specific summarization focus
+    const typeFocus = {
+      [DocumentTypes.FINANCIAL]: `Focus on financial metrics, ROI, cost-benefit analysis, and monetary implications.`,
+      [DocumentTypes.CONTRACT]: `Focus on obligations, rights, risks, penalties, and key contractual terms.`,
+      [DocumentTypes.ACADEMIC]: `Focus on learning objectives, key concepts, assignments, and academic requirements.`,
+      [DocumentTypes.TECHNICAL]: `Focus on specifications, implementation steps, requirements, and technical details.`,
+      [DocumentTypes.REPORT]: `Focus on findings, recommendations, data analysis, and strategic implications.`,
+      [DocumentTypes.SCHEDULE]: `Focus on timelines, deadlines, milestones, and scheduling conflicts.`,
+      [DocumentTypes.INVOICE]: `Focus on amounts due, payment terms, services rendered, and financial obligations.`,
+      [DocumentTypes.CAR_DETAILS]: `Focus on vehicle specifications, pricing, condition, and purchase considerations.`,
+      [DocumentTypes.MEDICAL]: `Focus on diagnoses, treatments, medications, and health implications.`,
+      [DocumentTypes.PROPOSAL]: `Focus on proposed solutions, benefits, costs, and implementation timeline.`
+    };
 
-**📊 ANALYTICAL CAPABILITIES:**
-- Multi-layered content analysis (executive, technical, operational levels)
-- Key insight extraction and pattern recognition
-- Context-aware importance weighting
-- Stakeholder perspective consideration
-- Action-oriented conclusion synthesis
+    const systemPrompt = `${baseSystemPrompt}
 
-**🎯 SUMMARIZATION EXCELLENCE:**
-- Executive summary with strategic insights
-- Key findings with supporting evidence
-- Important data points and metrics
-- Action items and recommendations
-- Risk factors and opportunities
-- Future implications and next steps
+${typeFocus[documentTypeInfo.type] || 'Focus on key information, insights, and actionable items.'}
 
-**📝 PRESENTATION STANDARDS:**
-- Clear, professional language without technical jargon
-- Logical flow from high-level overview to specific details
-- No markdown formatting, special characters, or code blocks
-- Natural paragraph structure with smooth transitions
-- Emphasis on practical value and business relevance
+Current document sentiment: ${documentSentiment.sentiment} (${documentSentiment.businessImpact})
 
-Provide a comprehensive yet concise summary that captures both the content and its significance for decision-making.`;
+Your summary should:
+1. Be written in clear, professional paragraphs (no JSON or markdown)
+2. Prioritize information based on business/personal impact
+3. Include specific numbers, dates, and facts from the document
+4. Provide actionable insights and recommendations
+5. Highlight any risks or opportunities
+6. Be concise yet comprehensive (aim for 500-800 words)
+
+Remember: This is a ${documentTypeInfo.type} document, so tailor your analysis accordingly.`;
     
     const messages = [
       { 
         role: 'user', 
-        content: `Perform advanced AI-powered analysis and create a comprehensive summary of this document. I need an intelligent analysis that includes:
+        content: `Create an advanced, intelligent summary of this ${documentTypeInfo.type} document.
 
-🎯 EXECUTIVE OVERVIEW:
-- What is this document about and why is it important?
-- What are the key messages and main purposes?
-- Who are the intended audiences and stakeholders?
+Structure your summary as follows:
 
-📊 KEY FINDINGS & INSIGHTS:
-- Most important data, facts, and conclusions
-- Significant trends, patterns, or anomalies
-- Critical numbers, percentages, and metrics
-- Comparative analysis and benchmarking
+1. EXECUTIVE SUMMARY (2-3 sentences)
+   - What is this document and why does it matter?
+   - Most critical takeaway for decision-making
 
-💼 BUSINESS IMPACT:
-- Strategic implications and business significance
-- Opportunities, risks, and challenges identified
-- Financial impact and resource requirements
-- Competitive advantages or disadvantages
+2. DOCUMENT OVERVIEW
+   - Type and purpose of document
+   - Key parties or stakeholders involved
+   - Overall context and background
 
-📋 ACTION INTELLIGENCE:
-- Recommended next steps and action items
-- Decision points requiring attention
-- Timeline considerations and deadlines
-- Required approvals or stakeholder involvement
+3. KEY FINDINGS & DATA
+   - Most important facts, figures, and discoveries
+   - Critical dates, deadlines, or time-sensitive items
+   - Financial implications (amounts, costs, revenues)
+   - Performance metrics or KPIs
 
-⚠️ CRITICAL ALERTS:
-- Urgent issues requiring immediate attention
-- Compliance requirements and regulations
-- Potential risks and mitigation strategies
-- Important deadlines and time constraints
+4. DETAILED ANALYSIS
+   - ${documentTypeInfo.type === DocumentTypes.FINANCIAL ? 'Financial breakdown and trends' : ''}
+   - ${documentTypeInfo.type === DocumentTypes.CONTRACT ? 'Obligations and terms analysis' : ''}
+   - ${documentTypeInfo.type === DocumentTypes.ACADEMIC ? 'Learning requirements and objectives' : ''}
+   - ${documentTypeInfo.type === DocumentTypes.SCHEDULE ? 'Timeline and milestone analysis' : ''}
+   - ${documentTypeInfo.type === DocumentTypes.CAR_DETAILS ? 'Vehicle assessment and value analysis' : ''}
+   - Patterns, trends, or anomalies discovered
+   - Comparative analysis (if applicable)
+
+5. RISKS & OPPORTUNITIES
+   - Identified risks or concerns
+   - Potential opportunities or benefits
+   - Compliance or regulatory considerations
+   - Red flags or warning signs
+
+6. RECOMMENDATIONS & NEXT STEPS
+   - Specific action items with priorities
+   - Decision points requiring attention
+   - Timeline for implementation
+   - Resources or approvals needed
+
+7. CRITICAL INFORMATION
+   - Contact details and key personnel
+   - Important references or citations
+   - Essential terms or definitions
+   - Anything requiring immediate attention
 
 Document content:
 ${pdfText}
 
-Provide a well-structured, professional summary that helps readers quickly understand both what the document contains and what actions or decisions might be needed based on its content.` 
+Remember: Make this summary immediately useful for someone who needs to make decisions based on this document. Be specific, be actionable, and highlight what matters most.` 
       }
     ];
 
-    // Call DeepSeek API for advanced analysis
-    const aiSummary = await callDeepSeekAPI(messages, systemPrompt);
+    // Call DeepSeek API with optimal parameters for summarization
+    const aiSummary = await callDeepSeekAPI(messages, systemPrompt, 0.5); // Lower temperature for more focused summaries
 
     // Clean up formatting to remove any markdown characters
     const cleanSummary = aiSummary
@@ -764,192 +1087,159 @@ router.post('/highlight', upload.single('file'), async (req, res) => {
 
     // Extract text from PDF
     const pdfText = await extractPDFText(req.file.path);
+    
+    // Detect document type for contextual analysis
+    const documentTypeInfo = detectDocumentType(pdfText);
+    console.log(`Detected document type: ${documentTypeInfo.type} (confidence: ${documentTypeInfo.confidence})`);
+    
+    // Get appropriate prompts based on document type
+    const typePrompts = documentTypePrompts[documentTypeInfo.type] || {
+      systemPrompt: `You are an advanced AI document intelligence specialist. Analyze this document and extract the most critical and actionable information.`,
+      userPrompt: `Extract all important information including dates, amounts, names, and key points.`
+    };
 
-    // Advanced AI system prompt for intelligent highlighting
-    const systemPrompt = `You are an advanced AI document intelligence specialist with expertise in critical information extraction. Your analysis capabilities include:
+    // Enhanced AI system prompt for intelligent highlighting
+    const systemPrompt = `${typePrompts.systemPrompt}
 
-**🔍 CRITICAL DATA DETECTION:**
-- Dates, deadlines, and time-sensitive information
-- Financial amounts, payment terms, and monetary values
-- Names, contacts, addresses, and entity information
-- Legal clauses, terms, conditions, and obligations
-- Action items, requirements, and next steps
-- Warnings, restrictions, penalties, and consequences
-- Performance metrics, KPIs, and benchmarks
+You are analyzing a ${documentTypeInfo.type} document. Your output should be natural, conversational text that clearly explains the important findings. Do NOT return JSON or structured data. Write in clear paragraphs as if explaining to a business professional.
 
-**📊 INTELLIGENT ANALYSIS:**
-- Context evaluation and importance ranking
-- Risk assessment and compliance indicators
-- Relationship mapping between different elements
-- Impact analysis and business implications
-- Urgency and priority classification
+Focus on:
+1. What matters most in this ${documentTypeInfo.type}
+2. Critical dates and deadlines
+3. Financial implications
+4. Action items required
+5. Risks or concerns
+6. Opportunities or benefits
 
-**💡 STRATEGIC INSIGHTS:**
-- Decision support information
-- Critical success factors
-- Potential issues or red flags
-- Opportunities and advantages
-
-Provide specific, actionable findings with exact details extracted from the document. No generic responses or placeholder data.`;
+Write your response as a professional business analysis, not as raw data extraction.`;
     
     const messages = [
       { 
         role: 'user', 
-        content: `Perform advanced AI-powered analysis to identify and extract the most critical information from this document. I need you to act as an intelligent document scanner that finds:
+        content: `I need you to analyze this ${documentTypeInfo.type} document and highlight the most important information.
 
-🔥 **IMMEDIATE PRIORITIES:**
-- Deadlines, due dates, expiration dates
-- Payment amounts, fees, penalties
-- Action items requiring immediate attention
-- Contact information for key people
+${typePrompts.userPrompt}
 
-💰 **FINANCIAL INTELLIGENCE:**
-- All monetary amounts and their context
-- Payment terms, conditions, and schedules
-- Cost breakdowns and pricing structures
-- Financial obligations and liabilities
+For this ${documentTypeInfo.type}, specifically look for:
+${documentTypeInfo.type === DocumentTypes.SCHEDULE ? `
+- All scheduled events with dates and times
+- Deadlines and due dates
+- Recurring patterns
+- Conflicts or overlaps
+- Priority indicators` : ''}
+${documentTypeInfo.type === DocumentTypes.INVOICE ? `
+- Total amount due and payment terms
+- Due date for payment
+- Late fees or penalties
+- Vendor details and contact
+- Line items and services` : ''}
+${documentTypeInfo.type === DocumentTypes.CAR_DETAILS ? `
+- Vehicle price and market value
+- Make, model, year details
+- Mileage and condition
+- Dealer contact information
+- Next steps for purchase` : ''}
+${documentTypeInfo.type === DocumentTypes.ACADEMIC ? `
+- Assignment due dates
+- Grading criteria
+- Submission requirements
+- Professor contact info
+- Important policies` : ''}
 
-📅 **TIME-CRITICAL INFORMATION:**
-- All dates and their significance
-- Timelines, schedules, and milestones
-- Renewal dates and contract terms
-- Event dates and important meetings
-
-👥 **KEY STAKEHOLDERS:**
-- Names, titles, and contact information
-- Roles, responsibilities, and authority levels
-- Decision makers and approval requirements
-- External partners and vendors
-
-⚠️ **RISKS & COMPLIANCE:**
-- Penalties, consequences, and violations
-- Compliance requirements and regulations
-- Restrictions, limitations, and prohibitions
-- Warning signs and red flags
-
-📋 **ACTION ITEMS:**
-- Required tasks and deliverables
-- Approval processes and workflows
-- Documentation and reporting requirements
-- Next steps and follow-up actions
+Additionally, provide:
+- A brief executive summary (2-3 sentences)
+- Key findings with business/personal impact
+- Recommended actions
+- Risk assessment
+- Timeline of important dates
+- Critical contact information
 
 Document content:
 ${pdfText}
 
-Provide detailed findings with specific extracted information, page references, and explain the business importance of each highlighted item. Focus on actionable intelligence that someone would need to act on or be aware of.` 
+Remember: Write your analysis as clear, professional paragraphs. Focus on what someone needs to know and do based on this document. Make it actionable and easy to understand.` 
       }
     ];
 
-    // Call DeepSeek API for advanced analysis
-    const aiResponse = await callDeepSeekAPI(messages, systemPrompt);
-
-    // Advanced parsing to extract structured highlights from AI response
-    const extractedHighlights = [];
+    // Call DeepSeek API with optimal parameters
+    const aiResponse = await callDeepSeekAPI(messages, systemPrompt, 0.6);
     
-    // Extract dates
-    const dateMatches = aiResponse.match(/\b(?:january|february|march|april|may|june|july|august|september|october|november|december|\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}|\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2})\b/gi);
-    if (dateMatches) {
-      dateMatches.slice(0, 5).forEach((date, index) => {
-        extractedHighlights.push({
-          id: `date_${index}`,
-          text: date,
-          type: 'date',
-          importance: 'high',
-          category: 'Time-Critical'
-        });
-      });
-    }
-
-    // Extract monetary amounts
-    const moneyMatches = aiResponse.match(/\$[\d,]+(?:\.\d{2})?|\b\d+(?:,\d{3})*(?:\.\d{2})?\s*(?:dollars?|usd|euros?|pounds?|\$|€|£)\b/gi);
-    if (moneyMatches) {
-      moneyMatches.slice(0, 5).forEach((amount, index) => {
-        extractedHighlights.push({
-          id: `money_${index}`,
-          text: amount,
-          type: 'financial',
-          importance: 'high',
-          category: 'Financial'
-        });
-      });
-    }
-
-    // Extract names (capitalized words that could be names)
-    const nameMatches = aiResponse.match(/\b[A-Z][a-z]+\s+[A-Z][a-z]+\b/g);
-    if (nameMatches) {
-      nameMatches.slice(0, 3).forEach((name, index) => {
-        extractedHighlights.push({
-          id: `name_${index}`,
-          text: name,
-          type: 'contact',
-          importance: 'medium',
-          category: 'Stakeholders'
-        });
-      });
-    }
-
-    // Extract phone numbers
-    const phoneMatches = aiResponse.match(/\b\d{3}[.\-\s]?\d{3}[.\-\s]?\d{4}\b/g);
-    if (phoneMatches) {
-      phoneMatches.slice(0, 3).forEach((phone, index) => {
-        extractedHighlights.push({
-          id: `phone_${index}`,
-          text: phone,
-          type: 'contact',
-          importance: 'medium',
-          category: 'Contact Information'
-        });
-      });
-    }
-
-    // Extract email addresses
-    const emailMatches = aiResponse.match(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/g);
-    if (emailMatches) {
-      emailMatches.slice(0, 3).forEach((email, index) => {
-        extractedHighlights.push({
-          id: `email_${index}`,
-          text: email,
-          type: 'contact',
-          importance: 'medium',
-          category: 'Contact Information'
-        });
-      });
-    }
-
-    // Generate intelligent summary
-    const intelligentSummary = {
-      totalHighlights: extractedHighlights.length,
-      criticalItems: extractedHighlights.filter(h => h.importance === 'high').length,
-      categories: [...new Set(extractedHighlights.map(h => h.category))],
-      riskLevel: aiResponse.toLowerCase().includes('penalty') || aiResponse.toLowerCase().includes('deadline') ? 'High' : 'Medium',
-      actionRequired: aiResponse.toLowerCase().includes('action') || aiResponse.toLowerCase().includes('required'),
-      hasFinancialInfo: moneyMatches && moneyMatches.length > 0,
-      hasContactInfo: (nameMatches && nameMatches.length > 0) || (phoneMatches && phoneMatches.length > 0),
-      hasTimeElements: dateMatches && dateMatches.length > 0
+    // Perform sentiment analysis
+    const sentimentAnalysis = analyzeSentiment(aiResponse, documentTypeInfo.type);
+    
+    // Extract key highlights in human-readable format
+    const highlights = [];
+    
+    // Parse the AI response to extract key information
+    const lines = aiResponse.split('\n').filter(line => line.trim());
+    
+    // Look for dates with context
+    lines.forEach(line => {
+      // Date patterns
+      const datePattern = /(\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2},?\s+\d{4}|\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})/gi;
+      if (datePattern.test(line) && !line.toLowerCase().includes('example')) {
+        highlights.push(line.trim());
+      }
+      
+      // Money patterns
+      const moneyPattern = /\$[\d,]+(?:\.\d{2})?|\b\d+(?:,\d{3})*(?:\.\d{2})?\s*(?:dollars?|usd|euros?|pounds?)/gi;
+      if (moneyPattern.test(line) && !highlights.includes(line.trim())) {
+        highlights.push(line.trim());
+      }
+      
+      // Action items
+      if ((line.toLowerCase().includes('action') || line.toLowerCase().includes('must') || 
+           line.toLowerCase().includes('required') || line.toLowerCase().includes('need to')) && 
+          !highlights.includes(line.trim())) {
+        highlights.push(line.trim());
+      }
+      
+      // Contact information
+      const emailPattern = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/g;
+      const phonePattern = /\b\d{3}[.\-\s]?\d{3}[.\-\s]?\d{4}\b/g;
+      if ((emailPattern.test(line) || phonePattern.test(line)) && !highlights.includes(line.trim())) {
+        highlights.push(line.trim());
+      }
+    });
+    
+    // Limit highlights to most important ones
+    const topHighlights = highlights.slice(0, 10);
+    
+    // Business intelligence summary
+    const intelligenceSummary = {
+      documentType: documentTypeInfo.type,
+      documentTypeConfidence: Math.round(documentTypeInfo.confidence * 100) + '%',
+      sentiment: sentimentAnalysis.sentiment,
+      sentimentConfidence: Math.round(sentimentAnalysis.confidence * 100) + '%',
+      businessImpact: sentimentAnalysis.businessImpact,
+      totalHighlights: topHighlights.length,
+      hasUrgentItems: aiResponse.toLowerCase().includes('urgent') || aiResponse.toLowerCase().includes('immediate'),
+      hasFinancialInfo: /\$[\d,]+/.test(aiResponse),
+      hasDeadlines: /deadline|due date|due by/i.test(aiResponse),
+      requiresAction: /action|required|must|need to/i.test(aiResponse)
     };
 
     // Clean up uploaded file
     fs.unlinkSync(req.file.path);
 
     console.log(`🎯 Advanced highlighting completed: ${req.file.originalname}`);
-    console.log(`Intelligence Summary: ${intelligentSummary.totalHighlights} highlights, ${intelligentSummary.riskLevel} risk level`);
+    console.log(`Intelligence Summary: ${intelligenceSummary.documentType} document, ${intelligenceSummary.sentiment} sentiment`);
 
     res.json({
       success: true,
-      message: `AI-powered analysis completed - ${intelligentSummary.totalHighlights} critical items identified`,
+      message: `AI-powered analysis completed - ${intelligenceSummary.totalHighlights} critical items identified`,
       filename: `ai_highlights_${Date.now()}.json`,
       downloadUrl: null,
       aiResponse: aiResponse,
-      highlights: extractedHighlights,
-      highlightCount: extractedHighlights.length,
-      intelligence: intelligentSummary,
+      highlights: topHighlights,
+      highlightCount: topHighlights.length,
+      intelligence: intelligenceSummary,
       insights: {
-        riskLevel: intelligentSummary.riskLevel,
-        actionRequired: intelligentSummary.actionRequired,
-        hasFinancialInfo: intelligentSummary.hasFinancialInfo,
-        hasContactInfo: intelligentSummary.hasContactInfo,
-        hasTimeElements: intelligentSummary.hasTimeElements,
-        categories: intelligentSummary.categories
+        documentType: intelligenceSummary.documentType,
+        sentiment: intelligenceSummary.sentiment,
+        businessImpact: intelligenceSummary.businessImpact,
+        urgency: intelligenceSummary.hasUrgentItems ? 'High' : 'Normal',
+        completeness: topHighlights.length > 5 ? 'Comprehensive' : 'Summary'
       }
     });
 
