@@ -257,16 +257,69 @@ async function extractPDFText(filePath) {
     console.log(`Attempting to extract text from ${path.basename(filePath)}`);
     
     try {
-      // Try pdftotext command (available on most Linux systems including Railway)
-      const { stdout } = await execAsync(`pdftotext "${filePath}" -`, { timeout: 30000 });
+      // Try multiple extraction methods for better results
+      let extractedText = '';
       
-      console.log(`Extracted text length: ${stdout.length} characters`);
+      // Method 1: Try pdftotext with raw option for better text preservation
+      try {
+        const { stdout: rawText } = await execAsync(`pdftotext -raw "${filePath}" -`, { timeout: 30000 });
+        if (rawText && rawText.trim()) {
+          extractedText = rawText;
+          console.log(`Extracted with -raw option: ${rawText.length} characters`);
+        }
+      } catch (e) {
+        console.log('Raw extraction failed, trying standard');
+      }
       
-      if (!stdout || stdout.trim().length === 0) {
+      // Method 2: If raw didn't work, try standard
+      if (!extractedText) {
+        const { stdout: stdText } = await execAsync(`pdftotext "${filePath}" -`, { timeout: 30000 });
+        if (stdText && stdText.trim()) {
+          extractedText = stdText;
+          console.log(`Extracted with standard option: ${stdText.length} characters`);
+        }
+      }
+      
+      // Method 3: Try with layout preservation for structured documents
+      if (!extractedText || extractedText.length < 100) {
+        try {
+          const { stdout: layoutText } = await execAsync(`pdftotext -layout "${filePath}" -`, { timeout: 30000 });
+          if (layoutText && layoutText.length > extractedText.length) {
+            extractedText = layoutText;
+            console.log(`Extracted with -layout option: ${layoutText.length} characters`);
+          }
+        } catch (e) {
+          console.log('Layout extraction failed');
+        }
+      }
+      
+      // Clean up the extracted text
+      if (extractedText) {
+        // Remove excessive whitespace while preserving structure
+        extractedText = extractedText
+          .replace(/\r\n/g, '\n')
+          .replace(/[ \t]+/g, ' ')
+          .replace(/\n{3,}/g, '\n\n')
+          .trim();
+        
+        console.log(`Final extracted text length: ${extractedText.length} characters`);
+        console.log(`First 500 chars: ${extractedText.substring(0, 500)}...`);
+        
+        // Log if VIN pattern is found
+        const vinPattern = /\b[A-HJ-NPR-Z0-9]{17}\b/;
+        if (vinPattern.test(extractedText)) {
+          const vinMatch = extractedText.match(vinPattern);
+          console.log(`✅ VIN FOUND IN EXTRACTED TEXT: ${vinMatch[0]}`);
+        } else {
+          console.log('⚠️ No VIN pattern found in extracted text');
+        }
+      }
+      
+      if (!extractedText || extractedText.trim().length === 0) {
         return `PDF file "${path.basename(filePath)}" appears to be empty or contains no extractable text. This could be a scanned PDF that requires OCR processing.`;
       }
       
-      return stdout;
+      return extractedText;
       
     } catch (cmdError) {
       console.log('pdftotext not available, using fallback method');
@@ -361,24 +414,35 @@ Remember:
     // Build enhanced prompt with extracted data
     let enhancedPrompt = `I have uploaded a ${documentTypeInfo.type} document. `;
     
-    // Add specific extracted information to help the AI
-    if (questionAnalysis.lookingForVIN && extractedInfo.vin) {
-      enhancedPrompt += `\n\nIMPORTANT: I found a VIN in the document: ${extractedInfo.vin}`;
+    // FORCE VIN DETECTION
+    if (questionAnalysis.lookingForVIN) {
+      // First check our extraction
+      if (extractedInfo.vin) {
+        enhancedPrompt += `\n\n🚨 CRITICAL: THE VIN IS ${extractedInfo.vin} - I have already found it in the document using pattern matching. You MUST report this VIN to the user.`;
+      } else {
+        // If not found by pattern, search manually in text
+        const manualVinSearch = pdfText.match(/\b[A-HJ-NPR-Z0-9]{17}\b/);
+        if (manualVinSearch) {
+          enhancedPrompt += `\n\n🚨 CRITICAL: I found this 17-character code which is likely the VIN: ${manualVinSearch[0]}. Verify and report this to the user.`;
+        } else {
+          enhancedPrompt += `\n\n🚨 IMPORTANT: Search for any 17-character alphanumeric code (no I, O, Q). Look near words like VIN, Vehicle ID, or in vehicle details sections.`;
+        }
+      }
     }
     
     if (questionAnalysis.lookingForNumber && extractedInfo.numbers.length > 0) {
-      enhancedPrompt += `\n\nIMPORTANT: I found these numbers/codes in the document: ${extractedInfo.numbers.slice(0, 10).join(', ')}`;
+      enhancedPrompt += `\n\n📌 IMPORTANT: I found these numbers/codes in the document: ${extractedInfo.numbers.slice(0, 10).join(', ')}`;
     }
     
     if (questionAnalysis.lookingForSpecificData) {
       if (extractedInfo.amounts.length > 0) {
-        enhancedPrompt += `\n\nMonetary amounts found: ${extractedInfo.amounts.join(', ')}`;
+        enhancedPrompt += `\n\n💰 Monetary amounts found: ${extractedInfo.amounts.join(', ')}`;
       }
       if (extractedInfo.dates.length > 0) {
-        enhancedPrompt += `\n\nDates found: ${extractedInfo.dates.join(', ')}`;
+        enhancedPrompt += `\n\n📅 Dates found: ${extractedInfo.dates.join(', ')}`;
       }
       if (extractedInfo.contacts.length > 0) {
-        enhancedPrompt += `\n\nContact information found: ${extractedInfo.contacts.join(', ')}`;
+        enhancedPrompt += `\n\n📞 Contact information found: ${extractedInfo.contacts.join(', ')}`;
       }
     }
     
@@ -396,10 +460,23 @@ ${questionAnalysis.requiresSpecificInfo ? 'Please find the specific information 
 
 My question: ${question}
 
-${questionAnalysis.lookingForVIN ? 'I am specifically looking for the VIN (Vehicle Identification Number). Please search the document carefully for a 17-character alphanumeric code.' : ''}
-${questionAnalysis.lookingForNumber ? 'I am looking for a specific number, code, or ID. Please search thoroughly.' : ''}
+${questionAnalysis.lookingForVIN ? `
+🚨 CRITICAL VIN REQUEST 🚨
+I am specifically looking for the VIN (Vehicle Identification Number). 
+- It's a 17-character alphanumeric code (excludes I, O, Q)
+- Format example: WBA3A5C55FK123456
+- Look for labels: VIN, Vehicle Identification Number, Vehicle ID
+- If you see ANY 17-character code, report it immediately
+- Start your response with: "The VIN is [VIN HERE]" if found
+- DO NOT say you can't find it without checking every single line
+` : ''}
+${questionAnalysis.lookingForNumber ? 'I need a specific number, code, or ID. Check EVERY number in the document.' : ''}
 
-Please provide a detailed, helpful response based on the document content. If you find the specific information requested, state it clearly at the beginning of your response.` 
+RESPONSE REQUIREMENTS:
+1. If asked for specific data (VIN, number, etc), state it IMMEDIATELY at the start
+2. Be 100% accurate - quote exactly what you find
+3. If you truly cannot find something after exhaustive search, explain what you searched for
+4. Never say "I cannot find" without first listing every place you looked` 
       }
     ];
 
@@ -1223,7 +1300,14 @@ router.post('/highlight', upload.single('file'), async (req, res) => {
     // Enhanced AI system prompt for intelligent highlighting
     const systemPrompt = `${typePrompts.systemPrompt}
 
-You are analyzing a ${documentTypeInfo.type} document. Your output should be natural, conversational text that clearly explains the important findings. Do NOT return JSON or structured data. Write in clear paragraphs as if explaining to a business professional.
+You are analyzing a ${documentTypeInfo.type} document. Your output MUST be natural, conversational text that clearly explains the important findings. 
+
+CRITICAL RULES:
+- DO NOT return JSON, arrays, or any structured data format
+- DO NOT use curly braces {}, square brackets [], or any JSON syntax
+- Write in clear, complete sentences and paragraphs
+- Speak as if explaining to a business professional in a meeting
+- Use bullet points with dashes (-) if listing items, not JSON arrays
 
 Focus on:
 1. What matters most in this ${documentTypeInfo.type}
@@ -1233,7 +1317,7 @@ Focus on:
 5. Risks or concerns
 6. Opportunities or benefits
 
-Write your response as a professional business analysis, not as raw data extraction.`;
+Write your response as a professional business analysis report with proper sentences, not as data extraction.`;
     
     const messages = [
       { 
@@ -1284,7 +1368,28 @@ Remember: Write your analysis as clear, professional paragraphs. Focus on what s
     ];
 
     // Call DeepSeek API with optimal parameters
-    const aiResponse = await callDeepSeekAPI(messages, systemPrompt, 0.6);
+    let aiResponse = await callDeepSeekAPI(messages, systemPrompt, 0.6);
+    
+    // CRITICAL: Clean any JSON formatting from the response
+    aiResponse = aiResponse
+      .replace(/```json/gi, '')
+      .replace(/```/g, '')
+      .replace(/^\s*[\[\{]/, '') // Remove starting brackets
+      .replace(/[\]\}]\s*$/, '') // Remove ending brackets
+      .replace(/"\w+":\s*"[^"]*",?/g, match => {
+        // Convert JSON key-value pairs to natural language
+        const [key, value] = match.split(':').map(s => s.trim().replace(/[",]/g, ''));
+        return `${key.replace(/_/g, ' ')}: ${value}. `;
+      })
+      .replace(/\s+/g, ' ')
+      .trim();
+    
+    // Ensure response is in paragraph format
+    if (!aiResponse.includes('.') && aiResponse.includes(',')) {
+      // Convert comma-separated list to bullet points
+      const items = aiResponse.split(',').map(item => item.trim());
+      aiResponse = 'Key findings from the document:\n\n' + items.map(item => `- ${item}`).join('\n');
+    }
     
     // Perform sentiment analysis
     const sentimentAnalysis = analyzeSentiment(aiResponse, documentTypeInfo.type);
