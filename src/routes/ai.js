@@ -313,13 +313,20 @@ router.post('/chat-with-pdf', upload.single('file'), async (req, res) => {
     // Advanced system prompt based on document type
     const baseSystemPrompt = `You are an extremely intelligent AI assistant with deep expertise in ${documentTypeInfo.type} documents. You have complete access to the document content and can:
 
-1. Answer ANY question about the document with perfect accuracy
-2. Find specific information no matter how deeply buried
-3. Explain complex concepts in simple terms
-4. Perform calculations and analysis on document data
-5. Identify patterns, relationships, and insights
-6. Provide actionable recommendations
-7. Cross-reference different parts of the document
+1. Answer ANY question about the document with PERFECT ACCURACY
+2. Find specific information no matter how deeply buried - YOU MUST SEARCH THOROUGHLY
+3. Extract exact values, numbers, codes, and identifiers
+4. NEVER say information isn't in the document without exhaustively searching
+5. For VIN numbers: Look for 17-character alphanumeric codes (excluding I, O, Q)
+6. For any number/code requests: Search for ALL numeric and alphanumeric sequences
+7. Always quote the exact text where you found the information
+
+CRITICAL: If asked for specific data (VIN, numbers, codes, names, dates), you MUST:
+- Search the entire document systematically
+- Look for common labels like "VIN:", "ID:", "Number:", etc.
+- Check for standalone 17-character codes for VINs
+- Provide the EXACT value found, not a description
+- If truly not found after thorough search, explain what you searched for
 
 You think step-by-step through problems and provide comprehensive, accurate answers. You're like having a subject matter expert who has memorized every detail of the document.`;
 
@@ -348,21 +355,51 @@ Remember:
     // Enhanced question analysis
     const questionAnalysis = analyzeQuestion(question);
     
+    // Extract specific information if needed
+    const extractedInfo = extractSpecificInfo(pdfText, question);
+    
+    // Build enhanced prompt with extracted data
+    let enhancedPrompt = `I have uploaded a ${documentTypeInfo.type} document. `;
+    
+    // Add specific extracted information to help the AI
+    if (questionAnalysis.lookingForVIN && extractedInfo.vin) {
+      enhancedPrompt += `\n\nIMPORTANT: I found a VIN in the document: ${extractedInfo.vin}`;
+    }
+    
+    if (questionAnalysis.lookingForNumber && extractedInfo.numbers.length > 0) {
+      enhancedPrompt += `\n\nIMPORTANT: I found these numbers/codes in the document: ${extractedInfo.numbers.slice(0, 10).join(', ')}`;
+    }
+    
+    if (questionAnalysis.lookingForSpecificData) {
+      if (extractedInfo.amounts.length > 0) {
+        enhancedPrompt += `\n\nMonetary amounts found: ${extractedInfo.amounts.join(', ')}`;
+      }
+      if (extractedInfo.dates.length > 0) {
+        enhancedPrompt += `\n\nDates found: ${extractedInfo.dates.join(', ')}`;
+      }
+      if (extractedInfo.contacts.length > 0) {
+        enhancedPrompt += `\n\nContact information found: ${extractedInfo.contacts.join(', ')}`;
+      }
+    }
+    
     const messages = [
       { 
         role: 'user', 
-        content: `I have uploaded a ${documentTypeInfo.type} document. 
+        content: `${enhancedPrompt}
 
 Document content:
 ${pdfText}
 
 ${questionAnalysis.requiresCalculation ? 'Please perform any necessary calculations.' : ''}
 ${questionAnalysis.requiresSummary ? 'Please provide a comprehensive summary.' : ''}
-${questionAnalysis.requiresSpecificInfo ? 'Please find the specific information requested.' : ''}
+${questionAnalysis.requiresSpecificInfo ? 'Please find the specific information requested. Look carefully through the document text.' : ''}
 
 My question: ${question}
 
-Please provide a detailed, helpful response based on the document content. If this involves homework or problem-solving, please explain your reasoning step-by-step.` 
+${questionAnalysis.lookingForVIN ? 'I am specifically looking for the VIN (Vehicle Identification Number). Please search the document carefully for a 17-character alphanumeric code.' : ''}
+${questionAnalysis.lookingForNumber ? 'I am looking for a specific number, code, or ID. Please search thoroughly.' : ''}
+
+Please provide a detailed, helpful response based on the document content. If you find the specific information requested, state it clearly at the beginning of your response.` 
       }
     ];
 
@@ -431,9 +468,78 @@ function analyzeQuestion(question) {
           'general',
     requiresCalculation: /calculate|solve|compute|add|subtract|multiply|divide/.test(lowerQuestion),
     requiresSummary: /summarize|summary|overview|brief/.test(lowerQuestion),
-    requiresSpecificInfo: /find|locate|where|when|who|what|which/.test(lowerQuestion),
-    isHomeworkHelp: /homework|assignment|problem|exercise|question \d+/.test(lowerQuestion)
+    requiresSpecificInfo: /find|locate|where|when|who|what|which|vin|number|code|id/.test(lowerQuestion),
+    isHomeworkHelp: /homework|assignment|problem|exercise|question \d+/.test(lowerQuestion),
+    lookingForVIN: /vin|vehicle identification|vin number|vehicle id/i.test(question),
+    lookingForNumber: /number|code|id|serial|reference|account/i.test(question),
+    lookingForSpecificData: /price|amount|date|time|address|phone|email|name/i.test(question)
   };
+}
+
+// Helper function to extract specific information from PDF text
+function extractSpecificInfo(pdfText, question) {
+  const extractions = {
+    vin: null,
+    numbers: [],
+    dates: [],
+    amounts: [],
+    contacts: [],
+    specificData: []
+  };
+  
+  // VIN pattern (17 characters, alphanumeric, excluding I, O, Q)
+  const vinPattern = /\b[A-HJ-NPR-Z0-9]{17}\b/g;
+  const vinMatches = pdfText.match(vinPattern);
+  if (vinMatches) {
+    extractions.vin = vinMatches[0]; // Usually the first match is the VIN
+  }
+  
+  // Look for VIN with label
+  const vinLabelPattern = /(?:VIN|Vehicle Identification Number|Vehicle ID)[:\s]*([A-HJ-NPR-Z0-9]{17})/i;
+  const vinLabelMatch = pdfText.match(vinLabelPattern);
+  if (vinLabelMatch) {
+    extractions.vin = vinLabelMatch[1];
+  }
+  
+  // Extract various number patterns
+  const numberPatterns = [
+    /(?:Serial|Reference|Account|Order|Invoice|ID)[:\s#]*([A-Z0-9\-]+)/gi,
+    /\b\d{4,}\b/g, // Numbers with 4+ digits
+    /\b[A-Z]{2,4}\d{4,8}\b/g // Alphanumeric codes
+  ];
+  
+  numberPatterns.forEach(pattern => {
+    const matches = pdfText.match(pattern);
+    if (matches) {
+      extractions.numbers.push(...matches);
+    }
+  });
+  
+  // Extract dates
+  const datePattern = /\b(?:\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}|\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2}|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]* \d{1,2},? \d{4})\b/gi;
+  const dateMatches = pdfText.match(datePattern);
+  if (dateMatches) {
+    extractions.dates = dateMatches;
+  }
+  
+  // Extract monetary amounts
+  const amountPattern = /\$[\d,]+(?:\.\d{2})?|\b\d+(?:,\d{3})*(?:\.\d{2})?\s*(?:dollars?|USD)/gi;
+  const amountMatches = pdfText.match(amountPattern);
+  if (amountMatches) {
+    extractions.amounts = amountMatches;
+  }
+  
+  // Extract contact info
+  const emailPattern = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/g;
+  const phonePattern = /\b(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b/g;
+  
+  const emailMatches = pdfText.match(emailPattern);
+  const phoneMatches = pdfText.match(phonePattern);
+  
+  if (emailMatches) extractions.contacts.push(...emailMatches);
+  if (phoneMatches) extractions.contacts.push(...phoneMatches);
+  
+  return extractions;
 }
 
 // Continue conversation with PDF endpoint - Enhanced
@@ -456,29 +562,43 @@ router.post('/continue-chat', async (req, res) => {
     
     // Analyze the new question
     const questionAnalysis = analyzeQuestion(message);
+    
+    // Extract specific information if needed
+    const extractedInfo = extractSpecificInfo(pdfText, message);
 
     // Enhanced system prompt for continuation
     const systemPrompt = `You are an extremely intelligent AI assistant continuing a conversation about a ${docType} document. You have:
 
-1. Complete access to the document content
+1. Complete access to the document content - SEARCH THOROUGHLY
 2. Full context of the previous conversation
-3. Deep understanding of the subject matter
-4. Ability to build on previous answers
+3. Ability to find ANY specific information in the document
+4. Perfect recall of all document details
 
-Remember:
-- Reference previous responses when relevant
-- Provide consistent information
-- Deepen the analysis with each response
-- Stay friendly and conversational
-- Format responses clearly without markdown
+CRITICAL REMINDERS:
+- For VIN requests: Look for 17-character alphanumeric codes
+- For specific data: Search exhaustively before saying it's not found
+- Always provide EXACT values, not descriptions
+- Quote the text where you found information
+- Build on previous answers while maintaining accuracy
 
-You're like having a dedicated expert who remembers everything discussed and can provide increasingly detailed insights.`;
+You're like having a dedicated expert with perfect memory who can find any detail in the document.`;
     
     // Build conversation with proper context
     const enhancedHistory = chatHistory ? chatHistory.map(msg => ({
       role: msg.role,
       content: msg.content
     })) : [];
+    
+    // Build enhanced message with extracted info
+    let enhancedMessage = message;
+    
+    if (questionAnalysis.lookingForVIN && extractedInfo.vin) {
+      enhancedMessage += `\n\nNOTE: VIN found in document: ${extractedInfo.vin}`;
+    }
+    
+    if (questionAnalysis.lookingForNumber && extractedInfo.numbers.length > 0) {
+      enhancedMessage += `\n\nNOTE: Numbers found: ${extractedInfo.numbers.slice(0, 10).join(', ')}`;
+    }
     
     const messages = [
       { 
@@ -488,10 +608,12 @@ You're like having a dedicated expert who remembers everything discussed and can
       ...enhancedHistory,
       { 
         role: 'user', 
-        content: `${message}
+        content: `${enhancedMessage}
 
 ${questionAnalysis.requiresCalculation ? 'Please show your calculations step-by-step.' : ''}
-${questionAnalysis.isHomeworkHelp ? 'This appears to be homework - please explain the concepts thoroughly to help me learn.' : ''}` 
+${questionAnalysis.isHomeworkHelp ? 'This appears to be homework - please explain the concepts thoroughly to help me learn.' : ''}
+${questionAnalysis.lookingForVIN ? 'I need the VIN number. Search for a 17-character code.' : ''}
+${questionAnalysis.lookingForNumber ? 'I need a specific number or code. Search thoroughly.' : ''}` 
       }
     ];
 
@@ -1173,34 +1295,51 @@ Remember: Write your analysis as clear, professional paragraphs. Focus on what s
     // Parse the AI response to extract key information
     const lines = aiResponse.split('\n').filter(line => line.trim());
     
-    // Look for dates with context
+    // Process each line to extract meaningful highlights
     lines.forEach(line => {
-      // Date patterns
-      const datePattern = /(\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2},?\s+\d{4}|\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})/gi;
-      if (datePattern.test(line) && !line.toLowerCase().includes('example')) {
-        highlights.push(line.trim());
-      }
+      const trimmedLine = line.trim();
       
-      // Money patterns
-      const moneyPattern = /\$[\d,]+(?:\.\d{2})?|\b\d+(?:,\d{3})*(?:\.\d{2})?\s*(?:dollars?|usd|euros?|pounds?)/gi;
-      if (moneyPattern.test(line) && !highlights.includes(line.trim())) {
-        highlights.push(line.trim());
-      }
+      // Skip empty lines or very short lines
+      if (trimmedLine.length < 10) return;
       
-      // Action items
-      if ((line.toLowerCase().includes('action') || line.toLowerCase().includes('must') || 
-           line.toLowerCase().includes('required') || line.toLowerCase().includes('need to')) && 
-          !highlights.includes(line.trim())) {
-        highlights.push(line.trim());
-      }
+      // Check if line contains important information
+      const hasDate = /\b(?:january|february|march|april|may|june|july|august|september|october|november|december|\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})/i.test(trimmedLine);
+      const hasMoney = /\$[\d,]+(?:\.\d{2})?|\b\d+(?:,\d{3})*(?:\.\d{2})?\s*(?:dollars?|usd|euros?|pounds?)/i.test(trimmedLine);
+      const hasAction = /\b(?:action|must|required|need to|should|deadline|due|important|critical|urgent)\b/i.test(trimmedLine);
+      const hasContact = /\b(?:\d{3}[.\-\s]?\d{3}[.\-\s]?\d{4}|[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,})\b/.test(trimmedLine);
+      const hasVIN = /\b[A-HJ-NPR-Z0-9]{17}\b/.test(trimmedLine);
       
-      // Contact information
-      const emailPattern = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/g;
-      const phonePattern = /\b\d{3}[.\-\s]?\d{3}[.\-\s]?\d{4}\b/g;
-      if ((emailPattern.test(line) || phonePattern.test(line)) && !highlights.includes(line.trim())) {
-        highlights.push(line.trim());
+      // Add line if it contains important information and isn't already included
+      if ((hasDate || hasMoney || hasAction || hasContact || hasVIN) && !highlights.some(h => h.includes(trimmedLine.substring(0, 20)))) {
+        // Clean up the line for better display
+        let cleanLine = trimmedLine;
+        
+        // Remove markdown if present
+        cleanLine = cleanLine.replace(/\*\*/g, '').replace(/\*/g, '').replace(/^[-•]\s*/, '');
+        
+        // Add appropriate emoji based on content type
+        if (hasVIN) cleanLine = `🚗 VIN: ${cleanLine}`;
+        else if (hasMoney) cleanLine = `💰 ${cleanLine}`;
+        else if (hasDate && hasAction) cleanLine = `📅⚡ ${cleanLine}`;
+        else if (hasDate) cleanLine = `📅 ${cleanLine}`;
+        else if (hasAction) cleanLine = `⚡ ${cleanLine}`;
+        else if (hasContact) cleanLine = `📞 ${cleanLine}`;
+        
+        highlights.push(cleanLine);
       }
     });
+    
+    // If no highlights found, extract the most important sentences from the AI response
+    if (highlights.length === 0) {
+      const importantSentences = aiResponse
+        .split(/[.!?]+/)
+        .filter(s => s.trim().length > 20)
+        .filter(s => /important|critical|key|main|primary|essential|significant/i.test(s))
+        .slice(0, 5)
+        .map(s => s.trim() + '.');
+      
+      highlights.push(...importantSentences);
+    }
     
     // Limit highlights to most important ones
     const topHighlights = highlights.slice(0, 10);
@@ -1231,7 +1370,7 @@ Remember: Write your analysis as clear, professional paragraphs. Focus on what s
       filename: `ai_highlights_${Date.now()}.json`,
       downloadUrl: null,
       aiResponse: aiResponse,
-      highlights: topHighlights,
+      highlights: topHighlights, // This will be displayed properly in the frontend
       highlightCount: topHighlights.length,
       intelligence: intelligenceSummary,
       insights: {
