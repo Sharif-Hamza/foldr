@@ -1370,26 +1370,88 @@ Remember: Write your analysis as clear, professional paragraphs. Focus on what s
     // Call DeepSeek API with optimal parameters
     let aiResponse = await callDeepSeekAPI(messages, systemPrompt, 0.6);
     
-    // CRITICAL: Clean any JSON formatting from the response
+    // CRITICAL: Format the response for beautiful display
+    console.log('Raw AI response length:', aiResponse.length);
+    
+    // First, clean any JSON remnants
     aiResponse = aiResponse
       .replace(/```json/gi, '')
       .replace(/```/g, '')
-      .replace(/^\s*[\[\{]/, '') // Remove starting brackets
-      .replace(/[\]\}]\s*$/, '') // Remove ending brackets
-      .replace(/"\w+":\s*"[^"]*",?/g, match => {
-        // Convert JSON key-value pairs to natural language
-        const [key, value] = match.split(':').map(s => s.trim().replace(/[",]/g, ''));
-        return `${key.replace(/_/g, ' ')}: ${value}. `;
-      })
-      .replace(/\s+/g, ' ')
-      .trim();
+      .replace(/^\s*[\[\{]/, '')
+      .replace(/[\]\}]\s*$/, '');
     
-    // Ensure response is in paragraph format
-    if (!aiResponse.includes('.') && aiResponse.includes(',')) {
-      // Convert comma-separated list to bullet points
-      const items = aiResponse.split(',').map(item => item.trim());
-      aiResponse = 'Key findings from the document:\n\n' + items.map(item => `- ${item}`).join('\n');
-    }
+    // Split into sentences and properly format
+    let sentences = aiResponse
+      .replace(/\*\*\*/g, ' --- ')
+      .replace(/\*\*/g, '')
+      .replace(/\s*---\s*/g, '\n\n')
+      .replace(/\s*-\s*\*\*/g, '\n\n• ')
+      .replace(/\s*-\s*/g, '\n\n• ')
+      .split(/(?<=[.!?])\s+/)
+      .filter(s => s.trim().length > 0);
+    
+    // Group sentences into logical sections
+    let formattedResponse = '';
+    let currentSection = '';
+    
+    sentences.forEach(sentence => {
+      if (sentence.includes('Executive Summary') || sentence.includes('Summary:')) {
+        formattedResponse += '\n\n📋 **Executive Summary**\n\n';
+        currentSection = 'summary';
+      } else if (sentence.includes('Key Finding') || sentence.includes('Important:')) {
+        formattedResponse += '\n\n🔍 **Key Findings**\n\n';
+        currentSection = 'findings';
+      } else if (sentence.includes('Vehicle Details') || sentence.includes('Make/Model')) {
+        formattedResponse += '\n\n🚗 **Vehicle Details**\n\n';
+        currentSection = 'vehicle';
+      } else if (sentence.includes('Price') || sentence.includes('$')) {
+        if (currentSection !== 'pricing') {
+          formattedResponse += '\n\n💰 **Pricing & Value**\n\n';
+          currentSection = 'pricing';
+        }
+      } else if (sentence.includes('Condition') || sentence.includes('Features')) {
+        if (currentSection !== 'condition') {
+          formattedResponse += '\n\n✨ **Condition & Features**\n\n';
+          currentSection = 'condition';
+        }
+      } else if (sentence.includes('Contact') || sentence.includes('Dealer')) {
+        if (currentSection !== 'contact') {
+          formattedResponse += '\n\n📞 **Contact Information**\n\n';
+          currentSection = 'contact';
+        }
+      } else if (sentence.includes('Next') || sentence.includes('Action') || sentence.includes('Recommend')) {
+        if (currentSection !== 'actions') {
+          formattedResponse += '\n\n⚡ **Recommended Actions**\n\n';
+          currentSection = 'actions';
+        }
+      }
+      
+      // Clean up the sentence
+      let cleanSentence = sentence
+        .replace(/\s+/g, ' ')
+        .replace(/•\s*/g, '• ')
+        .trim();
+      
+      // Add the sentence with proper formatting
+      if (cleanSentence.startsWith('• ')) {
+        formattedResponse += cleanSentence + '\n';
+      } else {
+        formattedResponse += cleanSentence + ' ';
+      }
+    });
+    
+    // Add timestamp
+    const timestamp = new Date().toLocaleString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+    
+    formattedResponse += `\n\n⏰ **Analysis Generated**: ${timestamp}`;
+    
+    aiResponse = formattedResponse.trim();
     
     // Perform sentiment analysis
     const sentimentAnalysis = analyzeSentiment(aiResponse, documentTypeInfo.type);
@@ -1397,57 +1459,130 @@ Remember: Write your analysis as clear, professional paragraphs. Focus on what s
     // Extract key highlights in human-readable format
     const highlights = [];
     
-    // Parse the AI response to extract key information
-    const lines = aiResponse.split('\n').filter(line => line.trim());
+    // Define key information patterns
+    const extractPatterns = [
+      {
+        pattern: /(?:Price|Cost|Value)[:\s]*\$?([\d,]+)/i,
+        format: (match) => `💰 Price: $${match[1]}`
+      },
+      {
+        pattern: /(?:Mileage|Miles)[:\s]*([\d,]+)/i,
+        format: (match) => `🛣️ Mileage: ${match[1]} miles`
+      },
+      {
+        pattern: /(?:Year|Model Year)[:\s]*(\d{4})/i,
+        format: (match) => `📅 Year: ${match[1]}`
+      },
+      {
+        pattern: /(?:Make\/Model|Vehicle)[:\s]*([^.!?]+)/i,
+        format: (match) => `🚗 Vehicle: ${match[1].trim()}`
+      },
+      {
+        pattern: /\b([A-HJ-NPR-Z0-9]{17})\b/,
+        format: (match) => `🔑 VIN: ${match[1]}`
+      },
+      {
+        pattern: /(?:Contact|Call|Phone)[:\s]*([\d\s\-\(\)]+)/i,
+        format: (match) => `📞 Contact: ${match[1]}`
+      },
+      {
+        pattern: /(?:Dealer|Dealership)[:\s]*([^.!?]+)/i,
+        format: (match) => `🏪 Dealer: ${match[1].trim()}`
+      },
+      {
+        pattern: /(?:Location|Address)[:\s]*([^.!?]+)/i,
+        format: (match) => `📍 Location: ${match[1].trim()}`
+      }
+    ];
     
-    // Process each line to extract meaningful highlights
-    lines.forEach(line => {
-      const trimmedLine = line.trim();
-      
-      // Skip empty lines or very short lines
-      if (trimmedLine.length < 10) return;
-      
-      // Check if line contains important information
-      const hasDate = /\b(?:january|february|march|april|may|june|july|august|september|october|november|december|\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})/i.test(trimmedLine);
-      const hasMoney = /\$[\d,]+(?:\.\d{2})?|\b\d+(?:,\d{3})*(?:\.\d{2})?\s*(?:dollars?|usd|euros?|pounds?)/i.test(trimmedLine);
-      const hasAction = /\b(?:action|must|required|need to|should|deadline|due|important|critical|urgent)\b/i.test(trimmedLine);
-      const hasContact = /\b(?:\d{3}[.\-\s]?\d{3}[.\-\s]?\d{4}|[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,})\b/.test(trimmedLine);
-      const hasVIN = /\b[A-HJ-NPR-Z0-9]{17}\b/.test(trimmedLine);
-      
-      // Add line if it contains important information and isn't already included
-      if ((hasDate || hasMoney || hasAction || hasContact || hasVIN) && !highlights.some(h => h.includes(trimmedLine.substring(0, 20)))) {
-        // Clean up the line for better display
-        let cleanLine = trimmedLine;
-        
-        // Remove markdown if present
-        cleanLine = cleanLine.replace(/\*\*/g, '').replace(/\*/g, '').replace(/^[-•]\s*/, '');
-        
-        // Add appropriate emoji based on content type
-        if (hasVIN) cleanLine = `🚗 VIN: ${cleanLine}`;
-        else if (hasMoney) cleanLine = `💰 ${cleanLine}`;
-        else if (hasDate && hasAction) cleanLine = `📅⚡ ${cleanLine}`;
-        else if (hasDate) cleanLine = `📅 ${cleanLine}`;
-        else if (hasAction) cleanLine = `⚡ ${cleanLine}`;
-        else if (hasContact) cleanLine = `📞 ${cleanLine}`;
-        
-        highlights.push(cleanLine);
+    // Extract structured highlights
+    extractPatterns.forEach(({ pattern, format }) => {
+      const match = aiResponse.match(pattern);
+      if (match && !highlights.some(h => h.includes(match[1]))) {
+        highlights.push(format(match));
       }
     });
     
-    // If no highlights found, extract the most important sentences from the AI response
-    if (highlights.length === 0) {
-      const importantSentences = aiResponse
-        .split(/[.!?]+/)
-        .filter(s => s.trim().length > 20)
-        .filter(s => /important|critical|key|main|primary|essential|significant/i.test(s))
-        .slice(0, 5)
-        .map(s => s.trim() + '.');
+    // Extract important statements
+    const importantStatements = [];
+    
+    // Look for key phrases in the response
+    const keyPhrases = [
+      /(?:certified pre-owned|CPO)/i,
+      /(?:warranty|coverage)[^.!?]+/i,
+      /(?:excellent|great|good) condition/i,
+      /(?:competitive|fair|below market) price/i,
+      /(?:recommend|suggest|should)[^.!?]+/i,
+      /(?:next step|action)[^.!?]+/i,
+      /(?:test drive|schedule|appointment)/i,
+      /(?:negotiat\w+|room for)[^.!?]+/i
+    ];
+    
+    keyPhrases.forEach(phrase => {
+      const matches = aiResponse.match(new RegExp(`[^.!?]*${phrase.source}[^.!?]*[.!?]`, 'gi'));
+      if (matches) {
+        matches.forEach(match => {
+          const cleanMatch = match.trim()
+            .replace(/\*\*/g, '')
+            .replace(/^[-•]\s*/, '');
+          
+          if (cleanMatch.length > 20 && cleanMatch.length < 200) {
+            if (/certified|CPO|warranty/i.test(cleanMatch)) {
+              importantStatements.push(`✅ ${cleanMatch}`);
+            } else if (/recommend|suggest|should|next/i.test(cleanMatch)) {
+              importantStatements.push(`💡 ${cleanMatch}`);
+            } else if (/negotiat|price|competitive/i.test(cleanMatch)) {
+              importantStatements.push(`💸 ${cleanMatch}`);
+            } else if (/condition|excellent|features/i.test(cleanMatch)) {
+              importantStatements.push(`⭐ ${cleanMatch}`);
+            } else {
+              importantStatements.push(`📌 ${cleanMatch}`);
+            }
+          }
+        });
+      }
+    });
+    
+    // Add unique important statements
+    importantStatements.forEach(statement => {
+      if (!highlights.some(h => h.includes(statement.substring(2, 30)))) {
+        highlights.push(statement);
+      }
+    });
+    
+    // Add a summary highlight if we have specific data
+    if (highlights.some(h => h.includes('Price')) && highlights.some(h => h.includes('Mileage'))) {
+      const priceHighlight = highlights.find(h => h.includes('Price'));
+      const mileageHighlight = highlights.find(h => h.includes('Mileage'));
       
-      highlights.push(...importantSentences);
+      if (priceHighlight && mileageHighlight) {
+        const price = priceHighlight.match(/\$([\d,]+)/)?.[1];
+        const miles = mileageHighlight.match(/([\d,]+) miles/)?.[1];
+        
+        if (price && miles) {
+          highlights.unshift(`🎯 Quick Summary: $${price} for ${miles} miles - ${
+            parseInt(miles.replace(/,/g, '')) < 50000 ? 'Low' : 
+            parseInt(miles.replace(/,/g, '')) < 80000 ? 'Moderate' : 'High'
+          } mileage`);
+        }
+      }
     }
     
-    // Limit highlights to most important ones
-    const topHighlights = highlights.slice(0, 10);
+    // Ensure we have at least 3 highlights
+    if (highlights.length < 3) {
+      // Extract first few sentences as highlights
+      const sentences = aiResponse
+        .split(/[.!?]+/)
+        .filter(s => s.trim().length > 30)
+        .slice(0, 5)
+        .map(s => `📝 ${s.trim()}.`);
+      
+      highlights.push(...sentences);
+    }
+    
+    // Remove duplicates and limit to 10
+    const uniqueHighlights = [...new Set(highlights)];
+    const topHighlights = uniqueHighlights.slice(0, 10);
     
     // Business intelligence summary
     const intelligenceSummary = {
